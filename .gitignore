@@ -7,3 +7,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 .DS_Store
+
+# registros da coleta local
+coleta_log.txt
+coleta_status.txt

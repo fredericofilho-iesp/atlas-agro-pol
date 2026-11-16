@@ -45,6 +45,29 @@ class ImportadorPAM(unittest.TestCase):
         self.assertFalse(any(x["categoria"] == "Total" for x in saida))
         self.assertEqual(info["valores_nulos"], 1)
 
+    def test_cafe_total_nao_duplica_variedades(self):
+        r = self.base()
+        total = dict(r, produto="Café (em grão) Total", valor_producao="100")
+        arabica = dict(r, produto="Café (em grão) Arábica", valor_producao="70")
+        canephora = dict(r, produto="Café (em grão) Canephora", valor_producao="30")
+        soja = dict(r, produto="Soja (em grão)", valor_producao="200",
+                    tipo_lavoura="temporaria")
+        self.escrever([total, arabica, canephora, soja])
+        saida, info = converter_linhas(self.path)
+        self.assertEqual(next(x["valor"] for x in saida if x["categoria"] == "Total"), 300)
+        self.assertEqual(info["subcategorias_cafe_excluidas_da_soma"], 2)
+        self.assertEqual(len(saida), 5)
+
+    def test_nulo_na_variedade_nao_invalida_total_de_cafe(self):
+        r = self.base()
+        self.escrever([
+            dict(r, produto="Café (em grão) Total", valor_producao="100"),
+            dict(r, produto="Café (em grão) Arábica", valor_producao=""),
+        ])
+        saida, info = converter_linhas(self.path)
+        self.assertEqual(next(x["valor"] for x in saida if x["categoria"] == "Total"), 100)
+        self.assertEqual(info["valores_nulos"], 1)
+
     def test_duplicata_rejeitada(self):
         self.escrever([self.base(), self.base()])
         with self.assertRaisesRegex(ValueError, "duplicada"):

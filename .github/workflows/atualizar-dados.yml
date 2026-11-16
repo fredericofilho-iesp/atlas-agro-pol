@@ -28,7 +28,7 @@ jobs:
           key: sidra-raw-${{ github.run_id }}
           restore-keys: sidra-raw-
 
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt -r requirements-geo.txt
 
       - name: Testes
         run: pytest -q

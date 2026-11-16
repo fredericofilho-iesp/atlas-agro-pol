@@ -47,9 +47,10 @@ UFS = {
 # ---------------------------------------------------------------------------
 # Tabelas do SIDRA usadas na Fase 1
 #
-# As variáveis são localizadas pelo NOME (via metadados da API), e não por
+# As variáveis são localizadas pelo NOME (via descrição da tabela), e não por
 # código fixo: "inclui" = trechos que o nome deve conter; "exclui" = trechos que
-# não pode conter. A comparação ignora acentos e maiúsculas. Se o IBGE mudar um
+# não pode conter ("percentual" e "participacao" já são sempre excluídos).
+# A comparação ignora acentos e maiúsculas. Se o IBGE mudar um
 # código, o pipeline continua funcionando; se mudar um nome, o erro diz quais
 # variáveis existem (ou rode: python -m pipeline.sidra --listar <tabela>).
 # ---------------------------------------------------------------------------
@@ -65,12 +66,9 @@ TABELAS = {
         "tabela": 5938,
         "nivel": "n6",
         "variaveis": {
-            "pib": {"inclui": ["produto interno bruto", "precos correntes"],
-                    "exclui": ["per capita", "percentual"]},
-            "vab_total": {"inclui": ["valor adicionado bruto", "total"],
-                          "exclui": ["percentual", "participacao"]},
-            "vab_agro": {"inclui": ["valor adicionado bruto", "agropecuaria"],
-                         "exclui": ["percentual", "participacao"]},
+            "pib": {"inclui": ["produto interno bruto", "precos correntes"], "exclui": ["per capita"]},
+            "vab_total": {"inclui": ["valor adicionado bruto", "total"], "exclui": []},
+            "vab_agro": {"inclui": ["valor adicionado bruto", "agropecuaria"], "exclui": []},
         },
     },
     "pam": {
@@ -97,26 +95,26 @@ TABELAS = {
         "tabela": 74,
         "nivel": "n6",
         "variaveis": {
-            "quantidade": {"inclui": ["producao de origem animal"], "exclui": ["percentual", "valor"]},
-            "valor_mil_reais": {"inclui": ["valor da producao"], "exclui": ["percentual"]},
+            "valor_mil_reais": {"inclui": ["valor da producao"], "exclui": []},
         },
-        "classificacao": {"todas_categorias": True},
+        # para o VBP basta o Total (as categorias da PPM e da PEVS são hierárquicas)
+        "classificacao": {"categorias": ["Total"]},
     },
     "pevs_extracao": {
         "tabela": 289,
         "nivel": "n6",
         "variaveis": {
-            "valor_mil_reais": {"inclui": ["valor da producao"], "exclui": ["percentual"]},
+            "valor_mil_reais": {"inclui": ["valor da producao"], "exclui": []},
         },
-        "classificacao": {"todas_categorias": True},
+        "classificacao": {"categorias": ["Total"]},
     },
     "pevs_silvicultura": {
         "tabela": 291,
         "nivel": "n6",
         "variaveis": {
-            "valor_mil_reais": {"inclui": ["valor da producao"], "exclui": ["percentual"]},
+            "valor_mil_reais": {"inclui": ["valor da producao"], "exclui": []},
         },
-        "classificacao": {"todas_categorias": True},
+        "classificacao": {"categorias": ["Total"]},
     },
 }
 

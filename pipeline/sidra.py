@@ -19,9 +19,11 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import logging
 import math
+import re
 import time
 import unicodedata
 from dataclasses import dataclass
@@ -37,9 +39,11 @@ from . import config
 
 log = logging.getLogger(__name__)
 
-URL_META = "https://servicodados.ibge.gov.br/api/v3/agregados/{t}/metadados"
-URL_PERIODOS = "https://servicodados.ibge.gov.br/api/v3/agregados/{t}/periodos"
+URL_DESCRICAO = "https://apisidra.ibge.gov.br/desctabapi.aspx?c={t}"
 URL_VALORES = "https://apisidra.ibge.gov.br/values"
+
+# Trechos que nunca interessam ao procurar variáveis pelo nome
+EXCLUSOES_PADRAO = ("percentual", "participacao")
 
 SIMBOLOS_ZERO = {"-"}
 SIMBOLOS_AUSENTE = {"X", "..", "...", ""}
@@ -121,7 +125,7 @@ class Metadados:
 
     def variavel_id(self, inclui: Iterable[str], exclui: Iterable[str] = ()) -> int:
         inclui = [normalizar(x) for x in inclui]
-        exclui = [normalizar(x) for x in exclui]
+        exclui = [normalizar(x) for x in (*exclui, *EXCLUSOES_PADRAO)]
         candidatos = [
             v for v in self.variaveis
             if all(t in normalizar(v["nome"]) for t in inclui)
@@ -146,14 +150,75 @@ class Metadados:
         return [p for p in self.periodos if int(str(p)[:4]) >= ano_inicio]
 
 
+_SPAN = re.compile(r'<span id="([^"]+)"[^>]*>(.*?)</span>', re.S)
+_TAG = re.compile(r"<[^>]+>")
+
+
+def interpretar_desctabapi(pagina: str) -> dict:
+    """Lê a página https://apisidra.ibge.gov.br/desctabapi.aspx?c=<tabela>.
+
+    Devolve um dicionário no mesmo formato dos metadados da API de agregados
+    (nome, variaveis, classificacoes) mais a lista de períodos.
+    """
+    campos = {i: html.unescape(_TAG.sub("", t)).strip() for i, t in _SPAN.findall(pagina)}
+    variaveis = []
+    for chave, valor in campos.items():
+        m = re.fullmatch(r"lstVariaveis_lblIdVariavel_(\d+)", chave)
+        if m:
+            nome = campos.get(f"lstVariaveis_lblNomeVariavel_{m.group(1)}", "")
+            variaveis.append({"id": int(valor), "nome": nome.split(" - casas decimais")[0].strip()})
+    classificacoes = []
+    for chave, valor in campos.items():
+        m = re.fullmatch(r"lstClassificacoes_lblIdClassificacao_(\d+)", chave)
+        if not m:
+            continue
+        i = m.group(1)
+        cats = []
+        for ck, cv in campos.items():
+            mc = re.fullmatch(rf"lstClassificacoes_lstCategorias_{i}_lblIdCategoria_(\d+)", ck)
+            if mc:
+                cats.append({"id": int(cv),
+                             "nome": campos.get(f"lstClassificacoes_lstCategorias_{i}_lblNomeCategoria_{mc.group(1)}", "")})
+        classificacoes.append({"id": int(valor), "nome": campos.get(f"lstClassificacoes_lblClassificacao_{i}", ""),
+                               "categorias": cats})
+    periodos = [p.strip() for p in campos.get("lblPeriodoDisponibilidade", "").split(",") if p.strip()]
+    if not variaveis:
+        msg = campos.get("lblMensagem") or "página sem variáveis"
+        raise RuntimeError(f"Descrição da tabela ilegível: {msg}")
+    return {"nome": campos.get("lblNomeTabela", ""), "variaveis": variaveis,
+            "classificacoes": classificacoes, "periodos": periodos}
+
+
+def _get_texto(url: str, timeout: int = 120) -> str:
+    resp = SESSAO.get(url, timeout=timeout)
+    if resp.status_code != 200:
+        raise RuntimeError(f"HTTP {resp.status_code} em {url}: {resp.text[:300]}")
+    return resp.text
+
+
 def metadados(tabela: int) -> Metadados:
-    bruto = _get_json(URL_META.format(t=tabela))
-    periodos_raw = _get_json(URL_PERIODOS.format(t=tabela))
-    periodos = [str(p["id"]) for p in periodos_raw]
+    """Metadados pela página de descrição do apisidra.
+
+    (A API servicodados.ibge.gov.br, que também tem metadados, costuma
+    recusar conexões de fora do Brasil; o apisidra não.)
+    """
+    bruto = interpretar_desctabapi(_get_texto(URL_DESCRICAO.format(t=tabela)))
     destino = config.RAW / "sidra" / str(tabela)
     destino.mkdir(parents=True, exist_ok=True)
     (destino / "metadados.json").write_text(json.dumps(bruto, ensure_ascii=False, indent=1))
-    return Metadados(tabela=tabela, bruto=bruto, periodos=periodos)
+    return Metadados(tabela=tabela, bruto=bruto, periodos=bruto["periodos"])
+
+
+def testar_conexao() -> None:
+    """Falha cedo, com mensagem clara, se o apisidra não responder."""
+    try:
+        _get_texto(URL_DESCRICAO.format(t=1737), timeout=30)
+    except Exception as exc:  # noqa: BLE001
+        raise SystemExit(
+            "Não foi possível acessar apisidra.ibge.gov.br. O IBGE costuma bloquear "
+            "algumas redes estrangeiras (inclusive servidores do GitHub). Rode o pipeline "
+            f"no seu computador ou numa rede com acesso ao IBGE.\nDetalhe: {exc}"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -190,6 +255,8 @@ def interpretar_resposta(dados: list[dict]) -> pd.DataFrame:
     # mapeia rótulo -> chave (D1C, D1N, ...)
     dims: dict[str, dict[str, str]] = {}
     for chave, rotulo in cabecalho.items():
+        if rotulo is None:  # dimensões vazias (D4..D9 = null)
+            continue
         if chave.startswith("D") and chave[-1] in "CN":
             base = rotulo.replace(" (Código)", "")
             dims.setdefault(base, {})["C" if chave.endswith("C") else "N"] = chave
@@ -262,7 +329,17 @@ def coletar(nome_fonte: str, ano_inicio: int | None = None, usar_cache: bool = T
     # Conjuntos de classificações a pedir em cada requisição
     grupos_class: list[dict[int, str] | None] = [None]
     n_cat = 1
-    if spec.get("classificacao", {}).get("todas_categorias"):
+    nomes_cat = spec.get("classificacao", {}).get("categorias")
+    if nomes_cat:
+        # só as categorias pedidas pelo nome (ex.: ["Total"]) da 1ª classificação
+        c = meta.classificacoes[0]
+        alvo = {normalizar(n) for n in nomes_cat}
+        ids = [str(cat["id"]) for cat in c["categorias"] if normalizar(cat["nome"]) in alvo]
+        if len(ids) != len(alvo):
+            raise LookupError(f"Tabela {spec['tabela']}: categorias {nomes_cat} não encontradas em c{c['id']}")
+        grupos_class = [{int(c["id"]): ",".join(ids)}]
+        n_cat = len(ids)
+    elif spec.get("classificacao", {}).get("todas_categorias"):
         n_cat = meta.n_categorias()
         if unidades_por_periodo * n_cat <= limite or len(meta.classificacoes) != 1:
             grupos_class = [{int(c["id"]): "all" for c in meta.classificacoes}]

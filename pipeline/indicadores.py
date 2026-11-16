@@ -142,8 +142,20 @@ def _ultimo(painel: pd.DataFrame, coluna: str) -> pd.DataFrame:
     return d.loc[d.groupby("codigo")["ano"].idxmax()].set_index("codigo")
 
 
+def _sem_subprodutos(nomes: pd.Series) -> pd.Series:
+    """True para categorias que não são subdivisão de outra.
+
+    Ex.: na PAM existem "Café (em grão) Total", "... Arábica" e "... Canephora";
+    fica só o Total do café.
+    """
+    norm = nomes.fillna("").map(normalizar)
+    prefixos = [s[: -len(" total")] for s in norm.unique() if s.endswith(" total")]
+    return ~norm.map(lambda s: any(s.startswith(p) and not s.endswith(" total") for p in prefixos))
+
+
 def principais_produtos(pam: pd.DataFrame, ano: int, n: int = 3) -> pd.Series:
     d = pam[(pam["medida"] == "valor_mil_reais") & (pam["ano"] == ano) & ~_eh_total(pam["categoria"])]
+    d = d[_sem_subprodutos(d["categoria"])]
     d = d[d["valor"] > 0].sort_values(["codigo", "valor"], ascending=[True, False])
     return d.groupby("codigo")["categoria"].apply(lambda s: list(s.head(n)))
 

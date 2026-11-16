@@ -12,6 +12,7 @@ com valores corrigidos pelo IPCA. O inventário completo de fontes está no docu
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+pip install -r requirements-geo.txt   # opcional: só para gerar a malha a partir do shapefile
 pytest -q                 # testes offline (API do IBGE simulada)
 python -m pipeline        # coleta + indicadores + exportação para o site
 ```
@@ -31,6 +32,14 @@ Para conferir as variáveis de uma tabela do SIDRA:
 ```bash
 python -m pipeline.sidra --listar 5457
 ```
+
+## Acesso ao IBGE de fora do Brasil
+
+O pipeline usa só o **apisidra.ibge.gov.br** (dados e descrição das tabelas) e o **geoftp.ibge.gov.br**
+(malha), que responderam de fora do Brasil em nov/2026. A API **servicodados.ibge.gov.br**
+(metadados, localidades e malhas) recusa conexões estrangeiras e só é tentada para a malha, com o
+geoftp como alternativa. Se o apisidra também recusar a sua rede, o pipeline para logo no início
+com uma mensagem clara.
 
 ## Atualização automática (GitHub Actions)
 
@@ -56,14 +65,16 @@ site/data/         arquivos leves para o mapa (versionados)
 
 | Fonte | Tabela SIDRA | Uso |
 | --- | --- | --- |
-| Municípios e malha | API de localidades e de malhas do IBGE | Chaves e mapa |
+| Municípios | apisidra (tabela 5938, último ano) | Código, nome, UF e região |
+| Malha | API de malhas do IBGE ou shapefile 2025 do geoftp | Mapa |
 | IPCA | 1737 | Deflator (média anual do número-índice; ano-base = último ano completo) |
 | PIB dos Municípios | 5938 | PIB, VAB total, VAB da agropecuária |
 | PAM | 5457 | Área, quantidade e valor das lavouras, por produto |
 | PPM | 3939, 74 | Rebanhos; produção e valor de origem animal |
 | PEVS | 289, 291 | Valor da extração vegetal e da silvicultura |
 
-As variáveis são localizadas **pelo nome** nos metadados do IBGE (ver `config.TABELAS`). Se o IBGE
+As variáveis são localizadas **pelo nome** na página de descrição de cada tabela
+(`apisidra.ibge.gov.br/desctabapi.aspx?c=<tabela>`; ver `config.TABELAS`). Se o IBGE
 renomear uma variável, o erro lista as variáveis disponíveis para ajustar o config.
 
 ## Indicadores
@@ -81,8 +92,9 @@ renomear uma variável, o erro lista as variáveis disponíveis para ajustar o c
 
 - **VAB da agropecuária por município só existe até 2021.** O IBGE publicou o PIB dos Municípios
   2022–2023 sem abertura setorial e fará o mesmo com 2024–2025 (em 2027). Para os anos recentes,
-  o atlas usa `vbp_sobre_pib`, que é uma aproximação e não o VAB. Verificar, na primeira execução,
-  se o PIB de 2022–2023 está na tabela 5938 ou numa tabela nova (o log mostra os períodos baixados).
+  o atlas usa `vbp_sobre_pib`, que é uma aproximação e não o VAB. O PIB total de 2022–2023 está
+  na própria tabela 5938.
+- **O último ano da PAM, PPM e PEVS é preliminar** e pode ser revisto pelo IBGE.
 - **O VBP subestima a pecuária de corte**: a PPM traz rebanhos (estoque), leite, ovos, mel e lã,
   mas não o valor do abate.
 - **Sigilo**: células "X" do IBGE viram ausência, nunca zero; ficam listadas em

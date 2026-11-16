@@ -1,0 +1,3 @@
+[{"D1C":"Município (Código)","D1N":"Município","D2C":"Variável (Código)","D2N":"Variável","D3C":"Ano (Código)","D3N":"Ano","D4C":"Produto das lavouras temporárias e permanentes (Código)","D4N":"Produto das lavouras temporárias e permanentes","MC":"Unidade de Medida (Código)","MN":"Unidade de Medida","NC":"Nível Territorial (Código)","NN":"Nível Territorial","V":"Valor"},
+{"D1C":"5107925","D1N":"Sorriso - MT","D2C":"215","D2N":"Valor da produção","D3C":"2025","D3N":"2025","D4C":"0","D4N":"Total","MC":"40","MN":"Mil Reais","NC":"6","NN":"Município","V":"8164615"},
+{"D1C":"5107925","D1N":"Sorriso - MT","D2C":"215","D2N":"Valor da produção","D3C":"2025","D3N":"2025","D4C":"40124","D4N":"Soja (em grão)","MC":"40","MN":"Mil Reais","NC":"6","NN":"Município","V":"4050250"}]

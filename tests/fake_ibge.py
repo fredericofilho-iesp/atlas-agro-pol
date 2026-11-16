@@ -24,7 +24,8 @@ META = {
         {"id": 593, "nome": "Produto Interno Bruto per capita a preços correntes", "unidade": "Reais"},
         {"id": 498, "nome": "Valor adicionado bruto a preços correntes total", "unidade": "Mil Reais"},
         {"id": 513, "nome": "Valor adicionado bruto a preços correntes da agropecuária", "unidade": "Mil Reais"},
-        {"id": 516, "nome": "Valor adicionado bruto a preços correntes da agropecuária - participação percentual", "unidade": "%"}],
+        {"id": 497, "nome": "Participação do produto interno bruto a preços correntes no produto interno bruto a preços correntes da unidade da federação (%)", "unidade": "%"},
+        {"id": 516, "nome": "Participação do valor adicionado bruto a preços correntes da agropecuária no valor adicionado bruto a preços correntes total (%) [2002 a 2021]", "unidade": "%"}],
         "classificacoes": [], "periodos": [str(a) for a in range(2014, 2024)]},
     5457: {"nome": "PAM", "variaveis": [
         {"id": 8331, "nome": "Área plantada ou destinada à colheita", "unidade": "Hectares"},
@@ -34,8 +35,9 @@ META = {
         {"id": 215, "nome": "Valor da produção", "unidade": "Mil Reais"},
         {"id": 1000215, "nome": "Valor da produção - percentual do total geral", "unidade": "%"}],
         "classificacoes": [{"id": 782, "nome": "Produto das lavouras temporárias e permanentes", "categorias": [
-            {"id": 40471, "nome": "Total"}, {"id": 40124, "nome": "Soja (em grão)"},
-            {"id": 40122, "nome": "Milho (em grão)"}, {"id": 40119, "nome": "Mandioca"}]}],
+            {"id": 0, "nome": "Total"}, {"id": 40124, "nome": "Soja (em grão)"},
+            {"id": 40122, "nome": "Milho (em grão)"}, {"id": 40119, "nome": "Mandioca"},
+            {"id": 40139, "nome": "Café (em grão) Total"}, {"id": 40140, "nome": "Café (em grão) Arábica"}]}],
         "periodos": [str(a) for a in ANOS]},
     3939: {"nome": "PPM rebanhos", "variaveis": [
         {"id": 105, "nome": "Efetivo dos rebanhos", "unidade": "Cabeças"}],
@@ -46,18 +48,19 @@ META = {
         {"id": 106, "nome": "Produção de origem animal", "unidade": "Mil litros"},
         {"id": 215, "nome": "Valor da produção", "unidade": "Mil Reais"}],
         "classificacoes": [{"id": 80, "nome": "Tipo de produto de origem animal", "categorias": [
-            {"id": 2682, "nome": "Leite"}, {"id": 2685, "nome": "Ovos de galinha"}]}],
+            {"id": 0, "nome": "Total"}, {"id": 2682, "nome": "Leite"}, {"id": 2685, "nome": "Ovos de galinha"}]}],
         "periodos": [str(a) for a in ANOS]},
     289: {"nome": "PEVS extração", "variaveis": [
         {"id": 144, "nome": "Quantidade produzida na extração vegetal", "unidade": "Toneladas"},
         {"id": 145, "nome": "Valor da produção na extração vegetal", "unidade": "Mil Reais"}],
         "classificacoes": [{"id": 193, "nome": "Tipo de produto extrativo", "categorias": [
-            {"id": 3403, "nome": "Total"}, {"id": 3404, "nome": "Açaí (fruto)"}]}],
+            {"id": 0, "nome": "Total"}, {"id": 3402, "nome": "1 - Alimentícios"},
+            {"id": 3403, "nome": "1.1 - Açaí (fruto)"}]}],
         "periodos": [str(a) for a in ANOS]},
     291: {"nome": "PEVS silvicultura", "variaveis": [
         {"id": 143, "nome": "Valor da produção na silvicultura", "unidade": "Mil Reais"}],
         "classificacoes": [{"id": 194, "nome": "Tipo de produto da silvicultura", "categorias": [
-            {"id": 3455, "nome": "Total"}, {"id": 3456, "nome": "Madeira em tora"}]}],
+            {"id": 0, "nome": "Total"}, {"id": 3455, "nome": "1.1 - Carvão vegetal"}]}],
         "periodos": [str(a) for a in ANOS]},
 }
 
@@ -65,12 +68,13 @@ META = {
 BASE = {
     5457: {40124: {5107925: 3_000_000, 5103403: 0},
            40122: {5107925: 1_000_000, 5103403: 5_000, 3300100: 0},
-           40119: {3304557: 800, 3300100: 1_200, 5103403: 4_000}},
+           40119: {3304557: 800, 3300100: 1_200, 5103403: 4_000},
+           40140: {3300100: 2_000}},
     3939: {2670: {5107925: 200_000, 5103403: 90_000, 3300100: 8_000},
            32794: {5107925: 300_000}},
     74: {2682: {5103403: 20_000, 3300100: 3_000}, 2685: {5107925: 1_000}},
-    289: {3404: {}},
-    291: {3456: {5107925: 15_000}},
+    289: {3403: {5103403: 500}},
+    291: {3455: {5107925: 15_000}},
 }
 SIGILO = {(5457, 40119, 5103403, 2020)}  # célula "X"
 
@@ -84,9 +88,18 @@ def _valor_base(t, cat, cod, ano, var):
     return "-" if v == 0 else f"{v:.3f}"
 
 
+FOLHAS_SOMADAS = {5457: {40124, 40122, 40119, 40140}, 3939: {2670, 32794}, 74: {2682, 2685},
+                  289: {3403}, 291: {3455}}
+SUBTOTAIS = {(5457, 40139): [40140], (289, 3402): [3403]}
+
+
 def _valor(t, cat_id, cod, ano, var):
-    cats = [c["id"] for c in META[t]["classificacoes"][0]["categorias"]]
-    total = next((c["id"] for c in META[t]["classificacoes"][0]["categorias"] if c["nome"] == "Total"), None)
+    if (t, cat_id) in SUBTOTAIS:
+        partes = [_valor_base(t, c, cod, ano, var) for c in SUBTOTAIS[(t, cat_id)]]
+        soma = sum(0 if x in ("-", "X") else float(x) for x in partes)
+        return "-" if soma == 0 else f"{soma:.3f}"
+    cats = list(FOLHAS_SOMADAS.get(t, [])) + [0]
+    total = 0
     if cat_id == total:
         soma = 0.0
         for c in cats:
@@ -120,20 +133,30 @@ def _ipca(periodo):
 
 def resposta(url: str):
     url = unquote(url)
-    if "/localidades/municipios" in url:
-        return [{"municipio-id": c, "municipio-nome": n, "UF-id": u, "UF-sigla": s, "regiao-nome": r}
-                for c, (n, u, s, r) in MUNICIPIOS.items()]
-    if "/malhas/" in url:
-        return {"type": "Topology", "objects": {}, "arcs": []}
-    m = re.search(r"/agregados/(\d+)/(metadados|periodos)", url)
-    if m:
-        t = int(m.group(1))
-        if m.group(2) == "periodos":
-            return [{"id": p} for p in META[t]["periodos"]]
-        d = dict(META[t])
-        d.pop("periodos")
-        return {"id": t, **d}
+    if "servicodados" in url:
+        raise RuntimeError("Connection to servicodados.ibge.gov.br timed out")  # como de fora do Brasil
+    if "desctabapi" in url:
+        return descricao_html(int(url.rsplit("=", 1)[1]))
     return _values(url)
+
+
+def descricao_html(t: int) -> str:
+    """Página desctabapi.aspx no mesmo formato de spans do IBGE."""
+    m = META[t]
+    spans = [f'<span id="lblNumeroTabela" class="tituloTabelaNro">{t}</span>',
+             f'<span id="lblNomeTabela" class="tituloTabelaDesc">{m["nome"]}</span>',
+             f'<span id="lblPeriodoDisponibilidade" style="color:Red;">{", ".join(m["periodos"])}</span>']
+    for i, v in enumerate(m["variaveis"]):
+        spans.append(f'<span id="lstVariaveis_lblIdVariavel_{i}" style="color:Red">{v["id"]}</span>')
+        spans.append(f'<span id="lstVariaveis_lblNomeVariavel_{i}">{v["nome"]} ({v["unidade"]}) '
+                     f'- casas decimais:  padrão = 0, máximo = 0</span>')
+    for i, c in enumerate(m["classificacoes"]):
+        spans.append(f'<span id="lstClassificacoes_lblIdClassificacao_{i}" style="color:Red; font-weight:bold">{c["id"]}</span>')
+        spans.append(f'<span id="lstClassificacoes_lblClassificacao_{i}" class="tituloLinha">{c["nome"]}</span>')
+        for j, cat in enumerate(c["categorias"]):
+            spans.append(f'<span id="lstClassificacoes_lstCategorias_{i}_lblIdCategoria_{j}" style="color:Red">{cat["id"]}</span>')
+            spans.append(f'<span id="lstClassificacoes_lstCategorias_{i}_lblNomeCategoria_{j}">{cat["nome"]}</span>')
+    return "<html><body>" + "\n".join(spans) + "</body></html>"
 
 
 def _values(url):
@@ -145,6 +168,7 @@ def _values(url):
     meta = META[t]
     header = {"NC": "Nível Territorial (Código)", "NN": "Nível Territorial", "MC": "Unidade de Medida (Código)",
               "MN": "Unidade de Medida", "V": "Valor"}
+    header.update({f"D{k}{x}": None for k in range(4, 10) for x in "CN"})  # como no apisidra real
     if t == 1737:
         header.update({"D1C": "Brasil (Código)", "D1N": "Brasil", "D2C": "Variável (Código)", "D2N": "Variável",
                        "D3C": "Mês (Código)", "D3N": "Mês"})
@@ -174,8 +198,9 @@ def _values(url):
                     else:
                         val = _valor(t, cat[0], cod, int(p), v)
                     r = {"NC": "6", "NN": "Município", "MC": "1", "MN": "Mil Reais", "V": val,
-                         "D1C": str(cod), "D1N": MUNICIPIOS[cod][0], "D2C": str(v), "D2N": nomes_var[v],
+                         "D1C": str(cod), "D1N": f"{MUNICIPIOS[cod][0]} - {MUNICIPIOS[cod][2]}", "D2C": str(v), "D2N": nomes_var[v],
                          "D3C": p, "D3N": p}
+                    r.update({f"D{k}{x}": None for k in range(4, 10) for x in "CN"})
                     if cat:
                         r.update({"D4C": str(cat[0]), "D4N": cat[1]})
                     rows.append(r)

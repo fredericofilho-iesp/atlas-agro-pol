@@ -1,0 +1,25 @@
+name: Diagnóstico API IBGE v3
+
+on:
+  push:
+    branches:
+      - auditoria-tecnica-2026-11
+    paths:
+      - pipeline/diagnostico_api.py
+      - .github/workflows/diagnostico-ibge.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verificar-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verificar endpoints oficiais e formato JSON
+        run: python -m pipeline.diagnostico_api

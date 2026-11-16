@@ -1,0 +1,45 @@
+name: Atualizar dados (Fase 1)
+
+on:
+  workflow_dispatch:        # botão "Run workflow" na aba Actions
+  schedule:
+    - cron: "17 6 3 * *"    # dia 3 de cada mês, 06:17 UTC
+
+permissions:
+  contents: write
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # Reaproveita o cache das respostas do IBGE entre execuções:
+      # só o que for novo é baixado de novo.
+      - uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: sidra-raw-${{ github.run_id }}
+          restore-keys: sidra-raw-
+
+      - run: pip install -r requirements.txt
+
+      - name: Testes
+        run: pytest -q
+
+      - name: Coleta e indicadores
+        run: python -m pipeline
+
+      - name: Publicar dados no repositório
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/processed site/data
+          git diff --cached --quiet || git commit -m "dados: atualização automática $(date -u +%Y-%m-%d)"
+          git push

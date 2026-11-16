@@ -1,0 +1,9 @@
+# cache de respostas das APIs e tabelas intermediárias (grandes; regeneráveis)
+data/raw/
+data/interim/
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.DS_Store

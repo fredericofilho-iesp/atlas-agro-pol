@@ -22,6 +22,9 @@ COLUNAS = [
     "categoria", "unidade", "valor", "tabela",
 ]
 TIPOS = {"permanente", "temporaria"}
+# Subcategorias incluídas em "Café (em grão) Total": preservar linhas,
+# mas jamais adicioná-las à soma monetária municipal.
+SUBCATEGORIAS_CAFE = {"Café (em grão) Arábica", "Café (em grão) Canephora"}
 COLUNAS_ENTRADA = {"ano", "id_municipio", "produto", "valor_producao", "tipo_lavoura"}
 
 
@@ -34,6 +37,7 @@ def converter_linhas(caminho: Path) -> tuple[list[dict], dict]:
     incompletos = set()
     chaves = set()
     n_nulos = 0
+    subcategorias_excluidas_da_soma = 0
     with caminho.open(encoding="utf-8-sig", newline="") as arquivo:
         leitor = csv.DictReader(arquivo)
         if not leitor.fieldnames or not COLUNAS_ENTRADA.issubset(leitor.fieldnames):
@@ -61,8 +65,11 @@ def converter_linhas(caminho: Path) -> tuple[list[dict], dict]:
             grupo = (int(codigo), ano)
             grupos.add(grupo)
             if valor is None:
-                incompletos.add(grupo)
                 n_nulos += 1
+            if produto in SUBCATEGORIAS_CAFE and tipo == "permanente":
+                subcategorias_excluidas_da_soma += 1
+            elif valor is None:
+                incompletos.add(grupo)
             else:
                 totais[grupo] += valor
             saida.append({
@@ -86,7 +93,8 @@ def converter_linhas(caminho: Path) -> tuple[list[dict], dict]:
         "municipio_ano_completo": len(grupos - incompletos),
         "municipio_ano_incompleto": len(incompletos),
         "valores_nulos": n_nulos,
-        "aviso": "Total calculado somente quando todos os produtos observados têm valor. "
+        "subcategorias_cafe_excluidas_da_soma": subcategorias_excluidas_da_soma,
+        "aviso": "Total calculado somente quando todos os produtos não hierárquicos observados têm valor. "
                  "Municípios ausentes do CSV não são imputados como zero.",
     }
     return saida, info

@@ -10,7 +10,9 @@ Pontos de projeto:
 * cada resposta bruta fica em cache (data/raw/sidra), então rodar de novo
   só baixa o que é novo;
 * os símbolos especiais do IBGE viram números ou ausência:
-  "-" (zero absoluto) -> 0; "X" (sigilo), "..", "..." -> NaN.
+  "-" (zero absoluto) -> 0; "X" (sigilo), "..", "..." -> None;
+* só usa a biblioteca padrão do Python (sem pandas/numpy/requests), para rodar
+  em computadores cujo Windows bloqueia bibliotecas compiladas sem assinatura.
 
 Uso de linha de comando para inspecionar uma tabela:
     python -m pipeline.sidra --listar 5457
@@ -22,18 +24,15 @@ import hashlib
 import html
 import json
 import logging
-import math
 import re
+import socket
 import time
 import unicodedata
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Iterable
-
-import pandas as pd
-import requests
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 from . import config
 
@@ -64,42 +63,58 @@ def normalizar(texto: str) -> str:
     return " ".join(sem_acento.casefold().split())
 
 
-def para_numero(valor: str | float | None) -> float:
+def para_numero(valor) -> float | None:
+    """Converte o texto do IBGE em número; ausência vira None."""
     if valor is None:
-        return math.nan
+        return None
     if isinstance(valor, (int, float)):
         return float(valor)
     v = valor.strip()
     if v in SIMBOLOS_ZERO:
         return 0.0
     if v in SIMBOLOS_AUSENTE:
-        return math.nan
+        return None
     try:
         return float(v)
     except ValueError:
-        return math.nan
+        return None
 
 
-def _sessao() -> requests.Session:
-    s = requests.Session()
-    retry = Retry(total=5, backoff_factor=2, status_forcelist=(429, 500, 502, 503, 504),
-                  allowed_methods=("GET",))
-    s.mount("https://", HTTPAdapter(max_retries=retry))
-    s.headers["User-Agent"] = "atlas-agrario-politico (pesquisa academica)"
-    return s
+USER_AGENT = "atlas-agrario-politico (pesquisa academica)"
+TENTATIVAS = 5
 
 
-SESSAO = _sessao()
+def _baixar_bytes(url: str, timeout: int = 180) -> bytes:
+    """GET com novas tentativas (espera 2, 4, 8, 16 s) em erros temporários."""
+    url = urllib.parse.quote(url, safe=":/?=&,%;+")
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json, */*"})
+    for tentativa in range(TENTATIVAS):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            corpo = exc.read()[:300].decode("utf-8", "replace")
+            if exc.code not in (429, 500, 502, 503, 504) or tentativa == TENTATIVAS - 1:
+                raise RuntimeError(f"HTTP {exc.code} em {url}: {corpo}") from exc
+        except (urllib.error.URLError, socket.timeout, TimeoutError, ConnectionError) as exc:
+            if tentativa == TENTATIVAS - 1:
+                raise RuntimeError(f"Falha de conexão em {url}: {exc}") from exc
+        espera = 2 ** (tentativa + 1)
+        log.warning("nova tentativa em %ds: %s", espera, url)
+        time.sleep(espera)
+    raise RuntimeError(f"Falha em {url}")
+
+
+def _get_texto(url: str, timeout: int = 120) -> str:
+    return _baixar_bytes(url, timeout).decode("utf-8", "replace")
 
 
 def _get_json(url: str, timeout: int = 180):
-    resp = SESSAO.get(url, timeout=timeout)
-    if resp.status_code != 200:
-        raise RuntimeError(f"HTTP {resp.status_code} em {url}: {resp.text[:300]}")
+    texto = _get_texto(url, timeout)
     try:
-        return resp.json()
+        return json.loads(texto)
     except ValueError as exc:  # a apisidra devolve texto puro em erros
-        raise RuntimeError(f"Resposta não-JSON em {url}: {resp.text[:300]}") from exc
+        raise RuntimeError(f"Resposta não-JSON em {url}: {texto[:300]}") from exc
 
 
 # ---------------------------------------------------------------------------
@@ -189,13 +204,6 @@ def interpretar_desctabapi(pagina: str) -> dict:
             "classificacoes": classificacoes, "periodos": periodos}
 
 
-def _get_texto(url: str, timeout: int = 120) -> str:
-    resp = SESSAO.get(url, timeout=timeout)
-    if resp.status_code != 200:
-        raise RuntimeError(f"HTTP {resp.status_code} em {url}: {resp.text[:300]}")
-    return resp.text
-
-
 def metadados(tabela: int) -> Metadados:
     """Metadados pela página de descrição do apisidra.
 
@@ -205,7 +213,7 @@ def metadados(tabela: int) -> Metadados:
     bruto = interpretar_desctabapi(_get_texto(URL_DESCRICAO.format(t=tabela)))
     destino = config.RAW / "sidra" / str(tabela)
     destino.mkdir(parents=True, exist_ok=True)
-    (destino / "metadados.json").write_text(json.dumps(bruto, ensure_ascii=False, indent=1))
+    (destino / "metadados.json").write_text(json.dumps(bruto, ensure_ascii=False, indent=1), encoding="utf-8")
     return Metadados(tabela=tabela, bruto=bruto, periodos=bruto["periodos"])
 
 
@@ -240,19 +248,18 @@ def montar_url(tabela: int, nivel: str, variaveis: list[int], periodos: list[str
     return "/".join(partes)
 
 
-def interpretar_resposta(dados: list[dict]) -> pd.DataFrame:
-    """Converte a resposta da apisidra (cabeçalho + linhas) num DataFrame arrumado.
+def interpretar_resposta(dados: list[dict]) -> list[dict]:
+    """Converte a resposta da apisidra (cabeçalho + linhas) em linhas arrumadas.
 
-    Colunas de saída: codigo, territorio, periodo, variavel_id, variavel,
+    Chaves de saída: codigo, territorio, periodo, variavel_id, variavel,
     unidade, valor e, para cada classificação, categoria_codigo / categoria
     (com sufixo _2, _3... quando há mais de uma).
     """
     if not dados or len(dados) < 2:
-        return pd.DataFrame()
+        return []
     cabecalho, linhas = dados[0], dados[1:]
-    df = pd.DataFrame(linhas)
 
-    # mapeia rótulo -> chave (D1C, D1N, ...)
+    # rótulo da dimensão -> chaves (D1C, D1N, ...)
     dims: dict[str, dict[str, str]] = {}
     for chave, rotulo in cabecalho.items():
         if rotulo is None:  # dimensões vazias (D4..D9 = null)
@@ -261,43 +268,45 @@ def interpretar_resposta(dados: list[dict]) -> pd.DataFrame:
             base = rotulo.replace(" (Código)", "")
             dims.setdefault(base, {})["C" if chave.endswith("C") else "N"] = chave
 
-    saida = pd.DataFrame(index=df.index)
+    mapa: list[tuple[str, str]] = []  # (chave de saída, chave da resposta)
     n_class = 0
     for base, chaves in dims.items():
         b = normalizar(base)
-        cod = df[chaves["C"]] if "C" in chaves else None
-        nom = df[chaves["N"]] if "N" in chaves else None
         if b in DIMENSOES_TERRITORIAIS:
-            saida["codigo"] = cod
-            saida["territorio"] = nom
+            mapa += [("codigo", chaves.get("C")), ("territorio", chaves.get("N"))]
         elif b.startswith(DIMENSOES_TEMPORAIS):
-            saida["periodo"] = cod
+            mapa += [("periodo", chaves.get("C"))]
         elif b == "variavel":
-            saida["variavel_id"] = pd.to_numeric(cod)
-            saida["variavel"] = nom
+            mapa += [("variavel_id", chaves.get("C")), ("variavel", chaves.get("N"))]
         else:
             n_class += 1
             suf = "" if n_class == 1 else f"_{n_class}"
-            saida[f"categoria_codigo{suf}"] = cod
-            saida[f"categoria{suf}"] = nom
-    saida["unidade"] = df.get("MN")
-    saida["valor"] = df["V"].map(para_numero)
+            mapa += [(f"categoria_codigo{suf}", chaves.get("C")), (f"categoria{suf}", chaves.get("N"))]
+
+    saida = []
+    for linha in linhas:
+        r = {k: linha.get(c) for k, c in mapa if c}
+        if r.get("variavel_id") is not None:
+            r["variavel_id"] = int(r["variavel_id"])
+        r["unidade"] = linha.get("MN")
+        r["valor"] = para_numero(linha.get("V"))
+        saida.append(r)
     return saida
 
 
 def baixar(tabela: int, nivel: str, variaveis: list[int], periodos: list[str],
            uf: int | None = None, classificacoes: dict[int, str] | None = None,
-           usar_cache: bool = True) -> pd.DataFrame:
+           usar_cache: bool = True) -> list[dict]:
     url = montar_url(tabela, nivel, variaveis, periodos, uf, classificacoes)
     destino = config.RAW / "sidra" / str(tabela)
     destino.mkdir(parents=True, exist_ok=True)
     arquivo = destino / (hashlib.sha1(url.encode()).hexdigest()[:16] + ".json")
     if usar_cache and arquivo.exists():
-        dados = json.loads(arquivo.read_text())
+        dados = json.loads(arquivo.read_text(encoding="utf-8"))
     else:
         log.info("GET %s", url)
         dados = _get_json(url)
-        arquivo.write_text(json.dumps(dados, ensure_ascii=False))
+        arquivo.write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
         time.sleep(config.PAUSA_ENTRE_REQUISICOES)
     return interpretar_resposta(dados)
 
@@ -308,10 +317,10 @@ def fatiar_periodos(periodos: list[str], valores_por_periodo: int, limite: int) 
     return [periodos[i:i + por_bloco] for i in range(0, len(periodos), por_bloco)]
 
 
-def coletar(nome_fonte: str, ano_inicio: int | None = None, usar_cache: bool = True) -> pd.DataFrame:
-    """Baixa uma fonte definida em config.TABELAS e devolve um DataFrame arrumado.
+def coletar(nome_fonte: str, ano_inicio: int | None = None, usar_cache: bool = True) -> list[dict]:
+    """Baixa uma fonte definida em config.TABELAS e devolve linhas arrumadas.
 
-    A coluna "medida" recebe o apelido da variável definido no config
+    A chave "medida" recebe o apelido da variável definido no config
     (ex.: "valor_mil_reais"), para que o resto do pipeline não dependa de nomes
     longos do IBGE.
     """
@@ -355,7 +364,7 @@ def coletar(nome_fonte: str, ano_inicio: int | None = None, usar_cache: bool = T
     ufs: list[int | None] = list(config.UFS) if spec["nivel"] == "n6" else [None]
     blocos = fatiar_periodos(periodos, unidades_por_periodo * n_cat, limite)
 
-    partes = []
+    linhas: list[dict] = []
     total = len(ufs) * len(apelidos) * len(blocos) * len(grupos_class)
     feito = 0
     for uf in ufs:
@@ -365,13 +374,13 @@ def coletar(nome_fonte: str, ano_inicio: int | None = None, usar_cache: bool = T
                     feito += 1
                     log.info("[%s] %d/%d  UF=%s var=%s períodos=%s..%s", nome_fonte, feito, total,
                              uf, var_id, bloco[0], bloco[-1])
-                    partes.append(baixar(spec["tabela"], spec["nivel"], [var_id], bloco, uf,
-                                         classif, usar_cache))
-    df = pd.concat([p for p in partes if not p.empty], ignore_index=True)
-    df["medida"] = df["variavel_id"].map(apelidos)
-    df["fonte"] = nome_fonte
-    df["tabela"] = spec["tabela"]
-    return df
+                    linhas += baixar(spec["tabela"], spec["nivel"], [var_id], bloco, uf,
+                                     classif, usar_cache)
+    for r in linhas:
+        r["medida"] = apelidos.get(r.get("variavel_id"))
+        r["fonte"] = nome_fonte
+        r["tabela"] = spec["tabela"]
+    return linhas
 
 
 # ---------------------------------------------------------------------------

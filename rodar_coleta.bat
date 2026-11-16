@@ -26,12 +26,19 @@ if not exist .venv (
 call .venv\Scripts\activate.bat
 
 echo [2/4] Instalando pacotes...
-python -m pip install --upgrade pip >nul
-python -m pip install -r requirements.txt || (echo ERRO_PIP> coleta_status.txt & pause & exit /b 1)
-python -m pip install -r requirements-geo.txt || echo Aviso: pacotes de mapa nao instalados; os dados saem mesmo assim.
+python --version > instalacao_log.txt 2>&1
+python -m pip install --upgrade pip >> instalacao_log.txt 2>&1
+python -m pip install -r requirements.txt >> instalacao_log.txt 2>&1 || (echo ERRO_PIP> coleta_status.txt & echo Erro na instalacao. Veja instalacao_log.txt & pause & exit /b 1)
+python -m pip freeze >> instalacao_log.txt 2>&1
 
 echo [3/4] Testando...
-python -m pytest -q || (echo ERRO_TESTES> coleta_status.txt & pause & exit /b 1)
+python -m pytest -q -p no:cacheprovider > testes_log.txt 2>&1
+if errorlevel 1 (
+  type testes_log.txt
+  echo ERRO_TESTES> coleta_status.txt
+  pause
+  exit /b 1
+)
 
 echo [4/4] Coletando dados do IBGE...
 python -m pipeline

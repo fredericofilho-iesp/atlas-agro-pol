@@ -11,8 +11,8 @@ com valores corrigidos pelo IPCA. O inventário completo de fontes está no docu
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-pip install -r requirements-geo.txt   # opcional: só para gerar a malha a partir do shapefile
+# No Windows, basta dar dois cliques em rodar_coleta.bat, que faz tudo abaixo.
+pip install -r requirements.txt     # só o pytest; o pipeline usa apenas a biblioteca padrão
 pytest -q                 # testes offline (API do IBGE simulada)
 python -m pipeline        # coleta + indicadores + exportação para o site
 ```
@@ -44,7 +44,14 @@ conexões residenciais e institucionais. Por isso:
 3. o workflow `.github/workflows/testes.yml` roda os testes a cada envio.
 
 A API **servicodados.ibge.gov.br** recusa conexões de fora do Brasil; o pipeline só a tenta
-para a malha, com o **geoftp.ibge.gov.br** como alternativa. Se o apisidra recusar a sua
+para a malha e segue sem ela quando não responde.
+
+### Sem bibliotecas compiladas
+
+O pipeline usa apenas a biblioteca padrão do Python (urllib, csv, gzip, json). Alguns
+computadores Windows têm uma política de Controle de Aplicativos que bloqueia bibliotecas
+compiladas sem assinatura, como pandas e numpy. Um teste garante que o código continue
+funcionando sem elas. Se o apisidra recusar a sua
 rede, o pipeline para logo no início com uma mensagem clara.
 
 Para atualizar os dados (por exemplo, quando sair uma nova PAM), rode de novo
@@ -56,6 +63,7 @@ Para atualizar os dados (por exemplo, quando sair uma nova PAM), rode de novo
 pipeline/
   config.py        anos, tabelas, nomes das variáveis (edite aqui)
   sidra.py         cliente das APIs do IBGE (metadados, fatiamento, cache, símbolos)
+  tabelas.py       leitura e gravação de CSV/CSV.gz
   coletar.py       municípios, malha, IPCA, PIB, PAM, PPM, PEVS -> data/interim/
   indicadores.py   painel município x ano, agregados por UF/Brasil, retrato atual, JSON do site
 tests/             testes com API simulada
@@ -68,7 +76,7 @@ site/data/         arquivos leves para o mapa (versionados)
 | Fonte | Tabela SIDRA | Uso |
 | --- | --- | --- |
 | Municípios | apisidra (tabela 5938, último ano) | Código, nome, UF e região |
-| Malha | API de malhas do IBGE ou shapefile 2025 do geoftp | Mapa |
+| Malha | API de malhas do IBGE (quando acessível) | Mapa |
 | IPCA | 1737 | Deflator (média anual do número-índice; ano-base = último ano completo) |
 | PIB dos Municípios | 5938 | PIB, VAB total, VAB da agropecuária |
 | PAM | 5457 | Área, quantidade e valor das lavouras, por produto |

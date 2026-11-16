@@ -11,3 +11,5 @@ __pycache__/
 # registros da coleta local
 coleta_log.txt
 coleta_status.txt
+instalacao_log.txt
+testes_log.txt

@@ -1,0 +1,28 @@
+name: Testes
+
+# A coleta de dados NÃO roda aqui: o apisidra.ibge.gov.br bloqueia servidores
+# de data center (como os do GitHub) com uma verificação anti-robô. A coleta
+# roda no computador do pesquisador (python -m pipeline) e os resultados em
+# data/processed e site/data são enviados ao repositório. Este workflow só
+# confere se o código continua funcionando.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: pytest -q

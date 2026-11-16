@@ -17,7 +17,7 @@ pytest -q                 # testes offline (API do IBGE simulada)
 python -m pipeline        # coleta + indicadores + exportação para o site
 ```
 
-A primeira coleta completa leva algumas horas: são milhares de consultas ao SIDRA, fatiadas por UF,
+A primeira coleta completa leva cerca de 1 a 3 horas: são milhares de consultas ao SIDRA, fatiadas por UF,
 variável, ano e produto. As respostas ficam em cache em `data/raw/`, então rodar de novo só baixa o
 que é novo. Para rodar por partes:
 
@@ -33,20 +33,22 @@ Para conferir as variáveis de uma tabela do SIDRA:
 python -m pipeline.sidra --listar 5457
 ```
 
-## Acesso ao IBGE de fora do Brasil
+## Por que a coleta roda no seu computador
 
-O pipeline usa só o **apisidra.ibge.gov.br** (dados e descrição das tabelas) e o **geoftp.ibge.gov.br**
-(malha), que responderam de fora do Brasil em nov/2026. A API **servicodados.ibge.gov.br**
-(metadados, localidades e malhas) recusa conexões estrangeiras e só é tentada para a malha, com o
-geoftp como alternativa. Se o apisidra também recusar a sua rede, o pipeline para logo no início
-com uma mensagem clara.
+O **apisidra.ibge.gov.br** (dados e descrição das tabelas) fica atrás de uma verificação
+anti-robô que bloqueia servidores de data center, como os do GitHub Actions, mas aceita
+conexões residenciais e institucionais. Por isso:
 
-## Atualização automática (GitHub Actions)
+1. a coleta roda no seu computador: `python -m pipeline`;
+2. você envia ao GitHub só `data/processed/` e `site/data/` (pelo GitHub Desktop ou `git push`);
+3. o workflow `.github/workflows/testes.yml` roda os testes a cada envio.
 
-O workflow `.github/workflows/atualizar-dados.yml` roda todo dia 3 do mês (ou pelo botão
-**Run workflow** na aba Actions), refaz os indicadores e publica `data/processed/` e `site/data/`
-no repositório. Para ele poder gravar: **Settings → Actions → General → Workflow permissions →
-Read and write permissions**.
+A API **servicodados.ibge.gov.br** recusa conexões de fora do Brasil; o pipeline só a tenta
+para a malha, com o **geoftp.ibge.gov.br** como alternativa. Se o apisidra recusar a sua
+rede, o pipeline para logo no início com uma mensagem clara.
+
+Para atualizar os dados (por exemplo, quando sair uma nova PAM), rode de novo
+`python -m pipeline`: só o que for novo é baixado.
 
 ## Estrutura
 

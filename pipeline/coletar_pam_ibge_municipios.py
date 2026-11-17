@@ -9,6 +9,7 @@ import argparse
 import csv
 import json
 import urllib.request
+import urllib.error
 from pathlib import Path
 
 BASE = "https://apisidra.ibge.gov.br/values"
@@ -66,10 +67,14 @@ def coletar(ano=2024, timeout=90):
     resultado = []
     for uf, produtos in ALVOS.items():
         for nome, codigo in produtos.items():
-            url = f"{BASE}/t/5457/n6/in n3 {uf}/v/215/p/{ano}/c782/{codigo}/f/a".replace(" ", "")
+            url = f"{BASE}/t/5457/n6/in%20n3%20{uf}/v/215/p/{ano}/c782/{codigo}/f/a"
             req = urllib.request.Request(url, headers={"User-Agent": "atlas-agro-pol/1.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                dados = json.load(resp)
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    dados = json.load(resp)
+            except urllib.error.HTTPError as exc:
+                detalhe = exc.read(2500).decode("utf-8", errors="replace")
+                raise RuntimeError(f"SIDRA HTTP {exc.code} na consulta {uf}/{nome}; URL={url}; resposta={detalhe}") from exc
             linhas = interpretar(dados, ano, uf, nome)
             if not linhas:
                 raise ValueError(f"Nenhum município retornado: {uf}/{nome}")

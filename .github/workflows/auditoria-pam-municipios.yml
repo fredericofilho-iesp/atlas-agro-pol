@@ -1,0 +1,54 @@
+name: Auditoria municipal PAM — SIDRA
+
+on:
+  pull_request:
+    paths:
+      - "pipeline/coletar_pam_ibge_municipios.py"
+      - ".github/workflows/auditoria-pam-municipios.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coleta-municipal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Coletar valores municipais oficiais
+        run: |
+          mkdir -p auditoria
+          set -o pipefail
+          python -m pipeline.coletar_pam_ibge_municipios --ano 2024 --saida auditoria/pam_ibge_municipios_2024.csv 2>&1 | tee auditoria/coleta_municipios.log
+      - name: Validar chaves e cobertura por pares
+        run: |
+          python - <<'PY'
+          import csv
+          from collections import Counter
+          from pathlib import Path
+          p = Path("auditoria/pam_ibge_municipios_2024.csv")
+          with p.open(encoding="utf-8", newline="") as f:
+              rows = list(csv.DictReader(f))
+          pares = Counter((r["codigo_uf"], r["produto"]) for r in rows)
+          chaves = {(r["ano"], r["id_municipio"], r["produto"]) for r in rows}
+          assert len(pares) == 6, f"Esperados seis pares, obtidos {pares}"
+          assert len(chaves) == len(rows), "Chaves municipais duplicadas"
+          assert all(r["ano"] == "2024" for r in rows), "Ano inesperado"
+          msg = "\n".join([f"Total de linhas: {len(rows)}",
+              f"Valores ausentes: {sum(not r['valor_producao_mil_reais'] for r in rows)}"] +
+              [f"{uf} | {produto}: {n}" for (uf, produto), n in sorted(pares.items())])
+          Path("auditoria/resumo_municipios.txt").write_text(msg+"\n", encoding="utf-8")
+          print(msg)
+          PY
+      - name: Publicar CSV e logs mesmo em caso de erro
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pam-sidra-municipios-2024-${{ github.run_id }}
+          path: auditoria/
+          if-no-files-found: warn
+          retention-days: 30

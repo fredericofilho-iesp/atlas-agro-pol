@@ -1,6 +1,11 @@
 name: Validação PAM — IBGE
 
 on:
+  pull_request:
+    paths:
+      - "pipeline/coletar_pam_ibge_uf.py"
+      - "tests/test_coletar_pam_ibge_uf.py"
+      - ".github/workflows/validacao-pam-ibge.yml"
   workflow_dispatch:
     inputs:
       ano:
@@ -22,12 +27,13 @@ jobs:
         with:
           python-version: "3.12"
       - name: Testes do coletor e comparador
-        run: python -m unittest discover -s tests -p 'test_*pam_uf.py' -v
+        run: python -m unittest discover -s tests -p 'test_coletar_pam_ibge_uf.py' -v
+          python -m unittest discover -s tests -p 'test_validar_pam_uf.py' -v
       - name: Coleta oficial IBGE por UF
         id: coleta
         continue-on-error: true
         env:
-          ANO: ${{ inputs.ano }}
+          ANO: ${{ inputs.ano || '2024' }}
         run: |
           mkdir -p auditoria
           set -o pipefail
@@ -42,6 +48,7 @@ jobs:
           import csv, os
           from pathlib import Path
           ano = os.environ["ANO"]
+          Path("auditoria").mkdir(parents=True, exist_ok=True)
           destino = Path("auditoria/relatorio.txt")
           arq = Path(f"auditoria/pam_ibge_uf_{ano}.csv")
           status = os.environ["COLETA"]
@@ -64,7 +71,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pam-ibge-uf-${{ inputs.ano }}-${{ github.run_id }}
+          name: pam-ibge-uf-${{ inputs.ano || '2024' }}-${{ github.run_id }}
           path: auditoria/
           if-no-files-found: warn
           retention-days: 30

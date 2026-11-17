@@ -1,21 +1,39 @@
-# Validação externa PAM 2024 — Base dos Dados versus IBGE
+# Auditoria nacional PAM 2024 — validação externa pendente
 
-Comparação nacional em **mil reais**. Base dos Dados: resultados BigQuery fornecidos pelo pesquisador. IBGE: valores das séries históricas do IBGE Explica e painel de indicadores, consultados em 16/11/2026.
+> **ATENÇÃO — retificação metodológica (17/11/2026).** Uma versão anterior
+> deste documento atribuía cinco valores nacionais ao IBGE como se tivessem
+> sido conferidos em fontes oficiais. **Essa verificação documental não foi
+> demonstrada.** Os números anteriores foram retirados para evitar a
+> circulação de referências não verificadas. Não citar a comparação anterior
+> como evidência de concordância estatística.
 
-| Cultura | Soma municipal BD | Brasil IBGE | BD − IBGE | Diferença relativa |
-|---|---:|---:|---:|---:|
-| Soja (em grão) | 260.233.559 | 260.233.510 | 49 | 0.00002% |
-| Cana-de-açúcar | 104.971.415 | 105.104.231 | -132.816 | -0.12637% |
-| Milho (em grão) | 88.118.185 | 87.928.195 | 189.990 | 0.21607% |
-| Café (em grão) Total | 69.205.996 | 69.125.789 | 80.207 | 0.11603% |
-| Arroz (em casca) | 22.317.494 | 22.318.455 | -961 | -0.00431% |
+## Valores observados na Base dos Dados
 
-**Nota:** a soma dos valores municipais da Base dos Dados não é necessariamente igual ao agregado nacional publicado pelo IBGE. O IBGE adverte que divergências podem decorrer de desidentificação para sigilo dos informantes. Essa hipótese é plausível, mas **não demonstrada** como causa exclusiva das diferenças acima. Outras possibilidades incluem revisões de dados, processamento e diferenças de cobertura. Não ajustar artificialmente os valores.
+Resultados agregados pelo pesquisador no BigQuery, em **mil reais**:
 
-**Regra de publicação:** manter a coluna de soma observada da Base dos Dados separada dos benchmarks nacionais do IBGE. Não atribuir selo de equivalência municipal/estadual antes de validação por UF e investigação das maiores diferenças. Para café, excluir Arábica e Canephora do total quando incluída a categoria Café Total.
+| Cultura | Soma municipal BD 2024 |
+|---|---:|
+| Soja (em grão) | 260.233.559 |
+| Cana-de-açúcar | 104.971.415 |
+| Milho (em grão) | 88.118.185 |
+| Café (em grão) Total | 69.205.996 |
+| Arroz (em casca) | 22.317.494 |
 
-## Fontes oficiais
-- https://www.ibge.gov.br/indicadores/estatisticas (soja, milho, cana, café)
-- https://www.ibge.gov.br/explica/producao-agropecuaria/arroz/br (arroz)
-- https://www.ibge.gov.br/explica/producao-agropecuaria/cafe/br (café)
-- https://www.ibge.gov.br/explica/producao-agropecuaria/cana-de-acucar/br (cana)
+**Fonte:** consultas às tabelas `basedosdados.br_ibge_pam.lavoura_permanente`
+e `basedosdados.br_ibge_pam.lavoura_temporaria`, resultados fornecidos pelo
+pesquisador. Estes valores **não** são benchmarks independentes do IBGE.
+
+## Protocolo para completar a comparação
+
+1. Obter valores oficiais diretamente do SIDRA/IBGE, tabela 5457, para o
+   mesmo ano, produtos, unidade territorial e variável monetária.
+2. Guardar o arquivo bruto, metadados da consulta, URL de origem e data.
+3. Conferir unidade de medida, nomes/códigos das categorias e eventual
+   existência de totais hierárquicos (café).
+4. Comparar por UF antes de comparar o Brasil, preservando ausência de
+   informação distinta de zero.
+5. Documentar revisões e discrepâncias; não inferir causalidade de diferenças
+   (sigilo, arredondamento etc.) sem evidência específica.
+
+**Status:** nenhuma equivalência nacional ou estadual entre as duas fontes
+foi validada independentemente neste documento.

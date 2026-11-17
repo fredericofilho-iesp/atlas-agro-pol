@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atlas Agrário e Político | PAM 2024 — prévia</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#1e293b;background:#f4f6f8}*{box-sizing:border-box}
+header{background:#142b3a;color:white;padding:19px 26px}header h1{margin:0;font-size:22px}header p{margin:5px 0 0;color:#cbd5e1;font-size:13px}
+main{display:grid;grid-template-columns:310px minmax(0,1fr);min-height:calc(100vh - 82px)}aside{background:white;padding:20px;border-right:1px solid #dce3e9;overflow:auto}
+label{display:block;font-size:13px;font-weight:650;margin:15px 0 6px}select,input[type=file]{width:100%;padding:9px;border:1px solid #cbd5e1;border-radius:6px;background:white}
+button{border:0;border-radius:6px;padding:10px 12px;background:#176f68;color:white;cursor:pointer;margin-top:12px}
+#map{height:calc(100vh - 82px);min-height:560px}.note{font-size:12px;color:#64748b;line-height:1.5}.stat{padding:12px;background:#f1f5f9;border-radius:8px;margin:10px 0}.stat strong{font-size:20px;display:block}
+#detail{font-size:13px;line-height:1.65;word-break:break-word}.legend{background:white;padding:12px;box-shadow:0 2px 10px #0002;border-radius:6px;font-size:12px;line-height:1.9}
+.swatch{display:inline-block;width:14px;height:12px;margin-right:7px;vertical-align:middle}.warning{color:#9a3412}
+@media(max-width:760px){main{display:flex;flex-direction:column}aside{order:2}#map{height:65vh;min-height:360px}}
+</style>
+</head>
+<body>
+<header><h1>Atlas Agrário e Político do Brasil</h1><p>PAM 2024 · Mapa municipal experimental · Dados auditados, ainda não publicados no atlas principal</p></header>
+<main><aside>
+<strong>Explorar a produção agrícola</strong>
+<p class="note">Carregue o arquivo <code>camada_qualidade_pam_2024.csv</code> produzido pela auditoria. O arquivo é processado localmente no navegador e não é enviado a servidores.</p>
+<label for="csv">Camada de qualidade (CSV)</label><input id="csv" type="file" accept=".csv,text/csv">
+<label for="crop">Cultura</label><select id="crop"><option>Soja (em grão)</option><option>Milho (em grão)</option><option>Cana-de-açúcar</option><option>Café (em grão) Total</option><option>Arroz (em casca)</option></select>
+<label for="uf">Estado</label><select id="uf"><option value="">Brasil inteiro</option></select>
+<label for="mode">Visualização</label><select id="mode"><option value="value">Valor da produção (SIDRA, mil R$)</option><option value="quality">Qualidade estatística</option></select>
+<div class="stat"><span>Municípios com valor informado</span><strong id="valid">—</strong></div>
+<div class="stat"><span>Registros divergentes BD × SIDRA</span><strong id="divergent">—</strong></div>
+<div class="stat"><span>Valor municipal somado (mil R$)</span><strong id="total">—</strong></div>
+<p class="note">A soma municipal pode diferir do total estadual oficial por arredondamento. Ausência de dado não equivale a produção zero.</p>
+<hr><strong>Detalhes do município</strong><div id="detail" class="note">Selecione uma área no mapa para consultar seus indicadores.</div>
+<p id="status" class="note" role="status">Aguardando arquivo CSV e malha geográfica.</p>
+</aside><div id="map" aria-label="Mapa interativo municipal do Brasil"></div></main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
+<script>
+"use strict";
+const UF={11:"RO",12:"AC",13:"AM",14:"RR",15:"PA",16:"AP",17:"TO",21:"MA",22:"PI",23:"CE",24:"RN",25:"PB",26:"PE",27:"AL",28:"SE",29:"BA",31:"MG",32:"ES",33:"RJ",35:"SP",41:"PR",42:"SC",43:"RS",50:"MS",51:"MT",52:"GO",53:"DF"};
+const colors=["#edf6f3","#b9dbd0","#70b5a4","#277c76","#134c56"];
+const statusColors={concordante:"#2b8a6e",divergente:"#e26a34",ausentes_ambas:"#e2e8f0",ausentes_bd:"#a855f7",ausentes_sidra:"#b45309",sem_linha_bd:"#64748b",sem_linha_sidra:"#be123c"};
+const map=L.map("map",{preferCanvas:true,zoomControl:true}).setView([-15.5,-53.2],4);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{attribution:"© OpenStreetMap contributors",maxZoom:18}).addTo(map);
+const $=id=>document.getElementById(id), fmt=x=>x===null||!Number.isFinite(x)?"Não informado":new Intl.NumberFormat("pt-BR",{maximumFractionDigits:2}).format(x);
+const parseNum=v=>v===""||v===null||v===undefined?null:(Number.isFinite(Number(v))?Number(v):null);
+const selected=()=>({crop:$("crop").value,uf:$("uf").value,mode:$("mode").value});
+let records=new Map(),geoLayer=null,geoData=null,breaks=[];
+for(const [code,name] of Object.entries(UF)){$("uf").add(new Option(name,code));}
+function municipalityId(feature){const p=feature.properties||{};return String(feature.id||p.id||p.codarea||p.codigo_ibge||p.CD_MUN||p.CD_GEOCMU||p.geocodigo||"").replace(/\.0$/,"").padStart(7,"0");}
+function recFor(id){return records.get(id+"|"+$("crop").value);}
+function quantiles(values){const v=values.filter(x=>x!==null&&x>0).sort((a,b)=>a-b);return [0.2,0.4,0.6,0.8].map(q=>v.length?v[Math.min(v.length-1,Math.floor(q*(v.length-1)))]:0);}
+function colorFor(r){if(!r||r.value===null)return "#e2e8f0";if($("mode").value==="quality")return statusColors[r.status]||"#64748b";if(r.value<=0)return colors[0];return colors[Math.min(4,breaks.filter(v=>r.value>v).length)];}
+function style(f){const id=municipalityId(f),r=recFor(id),uf=id.slice(0,2),outside=$("uf").value&&uf!==$("uf").value;return {color:"#fff",weight:0.35,fillColor:colorFor(r),fillOpacity:outside?0.05:0.88,opacity:outside?0.08:0.6};}
+function escapeHtml(x){return String(x??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function detail(f){const id=municipalityId(f),p=f.properties||{},r=recFor(id);$("detail").innerHTML="<b>"+escapeHtml(p.name||p.nome||p.NM_MUN||p.NM_MUNICIP||id)+"</b> · "+escapeHtml(UF[id.slice(0,2)]||"")+"<br>Código IBGE: "+escapeHtml(id)+"<br>"+(r?"Valor SIDRA: "+fmt(r.value)+" mil R$<br>Valor BD: "+fmt(r.bd)+" mil R$<br>Situação: "+escapeHtml(r.status)+"<br>Diferença BD − SIDRA: "+fmt(r.delta)+" mil R$":"Registro não encontrado no CSV");}
+function legend(){document.querySelectorAll(".legend").forEach(el=>el.remove());const control=L.control({position:"bottomright"});control.onAdd=()=>{const d=L.DomUtil.create("div","legend");if($("mode").value==="quality"){d.innerHTML="<b>Auditoria BD × SIDRA</b><br>"+Object.entries(statusColors).map(([k,v])=>'<span class="swatch" style="background:'+v+'"></span>'+escapeHtml(k)+"<br>").join("");}else{d.innerHTML="<b>Valor (mil R$)</b><br>"+colors.map((v,i)=>'<span class="swatch" style="background:'+v+'"></span>'+(i===0?"Menores valores":i===4?"Maiores valores":"Faixa "+(i+1))+"<br>").join("")+'<span class="swatch" style="background:#e2e8f0"></span>Sem valor';}return d;};control.addTo(map);}
+function redraw(){const {crop,uf}=selected();const subset=[...records.values()].filter(r=>r.crop===crop&&(!uf||r.uf===uf));breaks=quantiles(subset.map(r=>r.value));const valid=subset.filter(r=>r.value!==null);$("valid").textContent=fmt(valid.length);$("divergent").textContent=fmt(subset.filter(r=>r.status==="divergente").length);$("total").textContent=fmt(valid.reduce((s,r)=>s+r.value,0));if(geoLayer)geoLayer.setStyle(style);legend();$("status").textContent=records.size?fmt(subset.length)+" registros selecionados; malha "+(geoData?"carregada.":"ainda não carregada."):"Carregue o CSV para iniciar.";}
+function drawGeometry(){if(!geoData)return;if(geoLayer)map.removeLayer(geoLayer);geoLayer=L.geoJSON(geoData,{style,onEachFeature:(f,l)=>{l.on("click",()=>detail(f));l.on("mouseover",()=>l.setStyle({weight:1.5,color:"#334155"}));l.on("mouseout",()=>geoLayer.resetStyle(l));}}).addTo(map);redraw();}
+$("csv").addEventListener("change",e=>{const file=e.target.files[0];if(!file)return;$("status").textContent="Lendo CSV…";Papa.parse(file,{header:true,skipEmptyLines:true,worker:true,complete:result=>{const expected=["id_municipio","produto","valor_sidra_mil_reais","status_auditoria"];const fields=result.meta.fields||[];if(expected.some(x=>!fields.includes(x))){$("status").textContent="CSV incompatível. Campos obrigatórios: "+expected.join(", ");return;}records=new Map();for(const row of result.data){const id=String(row.id_municipio||"").trim();if(!/^\d{7}$/.test(id))continue;const rec={id,uf:id.slice(0,2),crop:row.produto,value:parseNum(row.valor_sidra_mil_reais),bd:parseNum(row.valor_bd_mil_reais),delta:parseNum(row.diferenca_bd_menos_sidra_mil_reais),status:row.status_auditoria};records.set(id+"|"+row.produto,rec);}redraw();},error:err=>$("status").textContent="Erro ao ler CSV: "+err.message});});
+for(const name of ["crop","uf","mode"])$(name).addEventListener("change",()=>{redraw();if(name==="uf"&&geoLayer&&$("uf").value){const layers=[];geoLayer.eachLayer(l=>{if(municipalityId(l.feature).slice(0,2)===$("uf").value)layers.push(l);});if(layers.length)map.fitBounds(L.featureGroup(layers).getBounds());}else if(name==="uf")map.setView([-15.5,-53.2],4);});
+legend();
+(async()=>{try{const url="https://raw.githubusercontent.com/tbrugz/geodata-br/master/geojson/geojs-100-mun.json";const resp=await fetch(url);if(!resp.ok)throw Error("HTTP "+resp.status);geoData=await resp.json();drawGeometry();}catch(e){$("status").textContent="Não foi possível carregar a malha municipal externa ("+e.message+"). Verifique conexão ou origem GeoJSON.";}})();
+</script></body></html>

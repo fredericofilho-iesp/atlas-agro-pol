@@ -3,7 +3,7 @@ from pipeline.coletar_pam_ibge_uf import interpretar
 
 
 class ColetarPAMIBGEUF(unittest.TestCase):
-    def test_resposta_sidra_com_dimensoes_corretas(self):
+    def test_resposta_sidra_com_cobertura_incompleta(self):
         dados = [
             {"D1C": "Unidade da Federação (Código)", "D1N": "Unidade da Federação",
              "D2C": "Ano (Código)", "D2N": "Ano",
@@ -16,10 +16,8 @@ class ColetarPAMIBGEUF(unittest.TestCase):
             {"D1C": "35", "D2C": "2024", "D3N": "Valor da produção",
              "D4N": "Soja (em grão)", "V": "-"},
         ]
-        r = interpretar(dados, 2024)
-        self.assertEqual(len(r), 2)
-        self.assertEqual(r[0]["valor_total_mil_reais"], "")
-        self.assertEqual(r[1]["valor_total_mil_reais"], 123.)
+        with self.assertRaisesRegex(ValueError, "Cobertura incompleta"):
+            interpretar(dados, 2024)
 
     def test_esquema_invalido(self):
         with self.assertRaisesRegex(ValueError, "esquema"):

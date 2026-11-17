@@ -42,7 +42,7 @@ jobs:
       - name: Verificar cobertura e gerar relatório
         if: always()
         env:
-          ANO: ${{ inputs.ano }}
+          ANO: ${{ inputs.ano || '2024' }}
           COLETA: ${{ steps.coleta.outcome }}
         run: |
           python - <<'PY'
@@ -53,6 +53,8 @@ jobs:
           destino = Path("auditoria/relatorio.txt")
           arq = Path(f"auditoria/pam_ibge_uf_{ano}.csv")
           status = os.environ["COLETA"]
+          if not ano:
+              raise ValueError("Ano ausente na validação; não gerar relatório enganoso.")
           linhas = []
           if arq.exists():
               with arq.open(encoding="utf-8", newline="") as f:
@@ -60,6 +62,8 @@ jobs:
           ufs = {x["codigo_uf"] for x in linhas}
           culturas = {x["produto"] for x in linhas}
           nulos = sum(not x["valor_total_mil_reais"] for x in linhas)
+          if status == "success" and (len(linhas) != 135 or len(ufs) != 27 or len(culturas) != 5):
+              raise ValueError("Coleta reportou sucesso mas a cobertura no CSV é incompleta.")
           msg = (f"ano={ano}\ncoleta={status}\nlinhas={len(linhas)}\n"
                  f"ufs={len(ufs)}\nculturas={len(culturas)}\n"
                  f"valores_ausentes={nulos}\n"

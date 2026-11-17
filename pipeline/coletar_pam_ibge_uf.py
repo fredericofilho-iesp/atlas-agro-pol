@@ -73,6 +73,14 @@ def interpretar(dados: list[dict], ano: int) -> list[dict]:
                               valor_total_mil_reais=valor))
     if not resultado:
         raise ValueError("Nenhuma das cinco culturas encontrada na resposta")
+    ufs = {r["codigo_uf"] for r in resultado}
+    culturas = {r["produto"] for r in resultado}
+    if len(ufs) != 27 or culturas != set(PRODUTOS) or len(resultado) != 135:
+        raise ValueError(
+            f"Cobertura incompleta ou classificação inesperada: "
+            f"{len(ufs)} UFs, {len(culturas)} culturas, {len(resultado)} linhas. "
+            "Não publicar como referência validada; revisar metadados SIDRA."
+        )
     return sorted(resultado, key=lambda r: (r["codigo_uf"], r["produto"]))
 
 

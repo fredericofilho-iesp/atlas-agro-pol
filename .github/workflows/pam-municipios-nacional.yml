@@ -1,0 +1,64 @@
+name: PAM 2024 — coleta municipal nacional SIDRA
+on:
+  workflow_dispatch:
+    inputs:
+      ano:
+        description: Ano de referência
+        required: true
+        default: '2024'
+        type: string
+  pull_request:
+    paths:
+      - 'pipeline/coletar_pam_ibge_municipios_nacional.py'
+      - 'tests/test_coletar_pam_ibge_municipios_nacional.py'
+      - '.github/workflows/pam-municipios-nacional.yml'
+permissions:
+  contents: read
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Testes unitários
+        run: python -m unittest discover -s tests -p 'test_coletar_pam_ibge_municipios_nacional.py' -v
+      - name: Coleta nacional SIDRA
+        env:
+          ANO: ${{ inputs.ano || '2024' }}
+        run: |
+          mkdir -p auditoria
+          python -m pipeline.coletar_pam_ibge_municipios_nacional --ano "$ANO" --saida "auditoria/pam_sidra_municipios_nacional_${ANO}.csv" 2>&1 | tee auditoria/coleta_nacional.log
+      - name: Validar cobertura e escrever manifesto
+        env:
+          ANO: ${{ inputs.ano || '2024' }}
+        run: |
+          python - <<'PY'
+          import csv, json, os
+          from collections import Counter
+          from pathlib import Path
+          from pipeline.coletar_pam_ibge_municipios_nacional import UFS
+          ano=os.environ['ANO']
+          path=Path(f'auditoria/pam_sidra_municipios_nacional_{ano}.csv')
+          with path.open(encoding='utf-8',newline='') as f:
+              rows=list(csv.DictReader(f))
+          pares={(r['codigo_uf'],r['produto']) for r in rows}
+          chaves={(r['ano'],r['id_municipio'],r['produto']) for r in rows}
+          if len(pares)!=135 or len(chaves)!=len(rows) or {r['codigo_uf'] for r in rows}!=set(UFS):
+              raise ValueError('Cobertura nacional incompleta ou chaves duplicadas')
+          manifesto={'ano':ano,'fonte':'IBGE/SIDRA 5457, variável 215',
+                     'pares_uf_produto':len(pares),'registros':len(rows),
+                     'simbolos':dict(Counter(r['simbolo_sidra'] for r in rows if not r['valor_producao_mil_reais']))}
+          Path('auditoria/manifesto_nacional.json').write_text(json.dumps(manifesto,ensure_ascii=False,indent=2),encoding='utf-8')
+          print(json.dumps(manifesto,ensure_ascii=False))
+          PY
+      - name: Publicar CSV, manifesto e logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pam-sidra-nacional-2024-${{ github.run_id }}
+          path: auditoria/
+          if-no-files-found: warn
+          retention-days: 30

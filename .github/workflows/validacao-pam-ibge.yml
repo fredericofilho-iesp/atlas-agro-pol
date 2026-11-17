@@ -6,6 +6,8 @@ on:
       - "pipeline/coletar_pam_ibge_uf.py"
       - "tests/test_coletar_pam_ibge_uf.py"
       - ".github/workflows/validacao-pam-ibge.yml"
+      - "data/raw/pam_bd_uf_2024.csv"
+      - "pipeline/validar_pam_uf.py"
   workflow_dispatch:
     inputs:
       ano:
@@ -71,6 +73,38 @@ jobs:
                  "forem retornadas nas 27 UFs; ausências não são zero.\n")
           destino.write_text(msg, encoding="utf-8")
           print(msg)
+          PY
+      - name: Comparar com Base dos Dados (quando CSV estiver disponível)
+        if: steps.coleta.outcome == 'success'
+        env:
+          ANO: ${{ inputs.ano || '2024' }}
+        run: |
+          BD="data/raw/pam_bd_uf_${ANO}.csv"
+          if [ ! -f "$BD" ]; then
+            echo "Comparação pendente: falta $BD" | tee auditoria/comparacao-pendente.txt
+            exit 0
+          fi
+          python -m pipeline.validar_pam_uf \
+            --bd "$BD" \
+            --oficial "auditoria/pam_ibge_uf_${ANO}.csv" \
+            --saida "auditoria/comparacao_pam_uf_${ANO}.csv"
+          python - <<'PY'
+          import csv, os
+          from collections import Counter
+          from pathlib import Path
+          ano = os.environ["ANO"]
+          path = Path(f"auditoria/comparacao_pam_uf_{ano}.csv")
+          with path.open(encoding="utf-8", newline="") as f:
+              rows = list(csv.DictReader(f))
+          status = Counter(row["status"] for row in rows)
+          comparable = [r for r in rows if r["status"] == "comparavel"]
+          ranking = sorted(comparable, key=lambda r: abs(float(r["diferenca_mil_reais"])), reverse=True)
+          out = [f"Comparação PAM {ano}: {len(rows)} chaves", f"Status: {dict(status)}",
+                 "Maiores diferenças absolutas (mil reais):"]
+          for r in ranking[:15]:
+              out.append(f'{r["codigo_uf"]} | {r["produto"]} | {r["diferenca_mil_reais"]} | {r["diferenca_pct"]}%')
+          Path("auditoria/resumo-comparacao.txt").write_text("\n".join(out)+"\n", encoding="utf-8")
+          print("\n".join(out))
           PY
       - name: Publicar arquivos de auditoria
         if: always()

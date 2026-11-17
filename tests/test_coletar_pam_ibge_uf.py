@@ -3,14 +3,18 @@ from pipeline.coletar_pam_ibge_uf import interpretar
 
 
 class ColetarPAMIBGEUF(unittest.TestCase):
-    def test_resposta_sidra(self):
+    def test_resposta_sidra_com_dimensoes_corretas(self):
         dados = [
-            {"N3": "UF (Código)", "C782": "Produto (Código)",
-             "D3N": "Produto", "V": "Valor", "D2C": "Ano"},
-            {"N3": "51", "C782": "40124", "D3N": "Soja (em grão)",
-             "V": "123.0", "D2C": "2024"},
-            {"N3": "35", "C782": "40124", "D3N": "Soja (em grão)",
-             "V": "-", "D2C": "2024"},
+            {"D1C": "Unidade da Federação (Código)", "D1N": "Unidade da Federação",
+             "D2C": "Ano (Código)", "D2N": "Ano",
+             "D3C": "Variável (Código)", "D3N": "Variável",
+             "D4C": "Produto das lavouras temporárias e permanentes (Código)",
+             "D4N": "Produto das lavouras temporárias e permanentes",
+             "V": "Valor"},
+            {"D1C": "51", "D2C": "2024", "D3N": "Valor da produção",
+             "D4N": "Soja (em grão)", "V": "123.0"},
+            {"D1C": "35", "D2C": "2024", "D3N": "Valor da produção",
+             "D4N": "Soja (em grão)", "V": "-"},
         ]
         r = interpretar(dados, 2024)
         self.assertEqual(len(r), 2)

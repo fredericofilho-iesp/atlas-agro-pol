@@ -44,7 +44,7 @@ def diagnosticar(linhas):
             delta = a - b
             status = "igual" if delta == 0 else "diferente"
             grupo["delta_comparavel"] += delta
-        grupo[status if status != "diferente" else "diferentes"] += 1
+        grupo[{"igual": "iguais", "diferente": "diferentes"}.get(status, status)] += 1
         detalhe.append({**{c: row[c] for c in CHAVE},
                         "bd_mil_reais": a if a is not None else "",
                         "sidra_mil_reais": b if b is not None else "",

@@ -27,7 +27,8 @@ jobs:
         with:
           python-version: "3.12"
       - name: Testes do coletor e comparador
-        run: python -m unittest discover -s tests -p 'test_coletar_pam_ibge_uf.py' -v
+        run: |
+          python -m unittest discover -s tests -p 'test_coletar_pam_ibge_uf.py' -v
           python -m unittest discover -s tests -p 'test_validar_pam_uf.py' -v
       - name: Coleta oficial IBGE por UF
         id: coleta

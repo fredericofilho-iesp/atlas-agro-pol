@@ -24,32 +24,47 @@ CAMPOS = ["ano", "codigo_uf", "produto", "valor_total_mil_reais"]
 
 
 def interpretar(dados: list[dict], ano: int) -> list[dict]:
+    """Mapeia dimensões pelo cabeçalho SIDRA, não por posições fixas."""
     if not isinstance(dados, list) or len(dados) < 2:
         raise ValueError("SIDRA: resposta sem registros")
     cab = dados[0]
-    # SIDRA com /f/a inclui códigos e nomes para as dimensões.
-    if not all(k in cab for k in ("N3", "C782", "D3N", "V")):
-        raise ValueError(f"SIDRA: esquema inesperado: {sorted(cab)}")
+    if "V" not in cab:
+        raise ValueError("SIDRA: esquema inesperado sem valor V")
+    # Em /f/a, D1C/D1N designam o território, D2 o período,
+    # D3 a variável e D4 a classificação; não assumir ordem fixa.
+    nomes = {k: str(v).lower() for k, v in cab.items()}
+    cod_uf = next((k for k,v in nomes.items()
+                   if k.startswith("D") and k.endswith("C")
+                   and ("unidade da federação" in v or "unidade da federacao" in v)), None)
+    produto = next((k for k,v in nomes.items()
+                    if k.startswith("D") and k.endswith("N")
+                    and ("produto" in v or "lavoura" in v)), None)
+    periodo = next((k for k,v in nomes.items()
+                    if k.startswith("D") and k.endswith("C")
+                    and ("ano" in v or "período" in v or "periodo" in v)), None)
+    if not cod_uf or not produto or not periodo:
+        raise ValueError(f"SIDRA: dimensões não identificadas: {cab}")
     resultado = []
     vistos = set()
     for linha in dados[1:]:
-        nome = str(linha.get("D3N", "")).strip()
+        nome = str(linha.get(produto, "")).strip()
         if nome not in PRODUTOS:
             continue
-        uf = str(linha.get("N3", "")).strip().zfill(2)
+        uf = str(linha.get(cod_uf, "")).strip().zfill(2)
         if len(uf) != 2 or not uf.isdigit():
             raise ValueError(f"UF inválida: {uf!r}")
-        periodo = str(linha.get("D2C", linha.get("D2N", ano))).strip()
-        if periodo != str(ano):
-            raise ValueError(f"Período inesperado: {periodo}")
+        if str(linha.get(periodo, "")).strip() != str(ano):
+            raise ValueError(f"Período inesperado: {linha.get(periodo)!r}")
         valor_txt = str(linha.get("V", "")).strip()
-        if valor_txt in ("", "-", "..", "...", "X"):
+        if valor_txt in ("", "-", "..", "...", "X", "x"):
             valor = ""
         else:
             try:
                 valor = float(valor_txt)
             except ValueError as e:
                 raise ValueError(f"Valor SIDRA não numérico: {valor_txt!r}") from e
+            if not __import__("math").isfinite(valor) or valor < 0:
+                raise ValueError(f"Valor SIDRA inválido: {valor_txt!r}")
         chave = (uf, nome)
         if chave in vistos:
             raise ValueError(f"Chave duplicada: {chave}")

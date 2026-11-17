@@ -27,7 +27,7 @@ def interpretar(dados: list[dict], ano: int) -> list[dict]:
     if not isinstance(dados, list) or len(dados) < 2:
         raise ValueError("SIDRA: resposta sem registros")
     cab = dados[0]
-    # SIDRA com /f/c fornece identificadores N3, C782, V e D3N.
+    # SIDRA com /f/a inclui códigos e nomes para as dimensões.
     if not all(k in cab for k in ("N3", "C782", "D3N", "V")):
         raise ValueError(f"SIDRA: esquema inesperado: {sorted(cab)}")
     resultado = []
@@ -62,7 +62,7 @@ def interpretar(dados: list[dict], ano: int) -> list[dict]:
 
 
 def coletar(ano: int, timeout: int = 90) -> list[dict]:
-    url = f"{BASE}/t/5457/n3/all/v/215/p/{ano}/c782/all/f/c"
+    url = f"{BASE}/t/5457/n3/all/v/215/p/{ano}/c782/all/f/a"
     req = urllib.request.Request(url, headers={"User-Agent": "atlas-agro-pol/1.0"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         dados = json.load(resp)

@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 import urllib.request
 from pathlib import Path
 
@@ -14,11 +15,11 @@ BASE = "https://apisidra.ibge.gov.br/values"
 # Variável 215: valor da produção (mil reais); classificação 782: produto.
 # Os rótulos devem ser conferidos com o metadado retornado pela API.
 PRODUTOS = {
-    "Soja (em grão)": "Soja (em grão)",
-    "Cana-de-açúcar": "Cana-de-açúcar",
-    "Milho (em grão)": "Milho (em grão)",
-    "Café (em grão) Total": "Café (em grão) Total",
-    "Arroz (em casca)": "Arroz (em casca)",
+    "Soja (em grão)": 40124,
+    "Cana-de-açúcar": 40106,
+    "Milho (em grão)": 40122,
+    "Café (em grão) Total": 40139,
+    "Arroz (em casca)": 40102,
 }
 CAMPOS = ["ano", "codigo_uf", "produto", "valor_total_mil_reais"]
 
@@ -63,7 +64,7 @@ def interpretar(dados: list[dict], ano: int) -> list[dict]:
                 valor = float(valor_txt)
             except ValueError as e:
                 raise ValueError(f"Valor SIDRA não numérico: {valor_txt!r}") from e
-            if not __import__("math").isfinite(valor) or valor < 0:
+            if not math.isfinite(valor) or valor < 0:
                 raise ValueError(f"Valor SIDRA inválido: {valor_txt!r}")
         chave = (uf, nome)
         if chave in vistos:
@@ -85,7 +86,8 @@ def interpretar(dados: list[dict], ano: int) -> list[dict]:
 
 
 def coletar(ano: int, timeout: int = 90) -> list[dict]:
-    url = f"{BASE}/t/5457/n3/all/v/215/p/{ano}/c782/all/f/a"
+    codigos = ",".join(str(PRODUTOS[k]) for k in sorted(PRODUTOS))
+    url = f"{BASE}/t/5457/n3/all/v/215/p/{ano}/c782/{codigos}/f/a"
     req = urllib.request.Request(url, headers={"User-Agent": "atlas-agro-pol/1.0"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         dados = json.load(resp)

@@ -25,6 +25,8 @@ jobs:
           python-version: '3.12'
       - name: Testes unitários
         run: python -m unittest discover -s tests -p 'test_coletar_pam_ibge_municipios_nacional.py' -v
+      - name: Testes da reconciliação nacional
+        run: python -m unittest discover -s tests -p 'test_conciliar_pam_sidra_nacional.py' -v
       - name: Coleta nacional SIDRA
         env:
           ANO: ${{ inputs.ano || '2024' }}
@@ -54,6 +56,15 @@ jobs:
           Path('auditoria/manifesto_nacional.json').write_text(json.dumps(manifesto,ensure_ascii=False,indent=2),encoding='utf-8')
           print(json.dumps(manifesto,ensure_ascii=False))
           PY
+      - name: Conferir soma municipal com total oficial da UF
+        env:
+          ANO: ${{ inputs.ano || '2024' }}
+        run: |
+          python -m pipeline.coletar_pam_ibge_uf --ano "$ANO" --saida "auditoria/pam_sidra_uf_${ANO}.csv"
+          python -m pipeline.conciliar_pam_sidra_nacional \
+            --municipios "auditoria/pam_sidra_municipios_nacional_${ANO}.csv" \
+            --ufs "auditoria/pam_sidra_uf_${ANO}.csv" \
+            --saida "auditoria/conciliacao_municipios_ufs_${ANO}.csv"
       - name: Publicar CSV, manifesto e logs
         if: always()
         uses: actions/upload-artifact@v4

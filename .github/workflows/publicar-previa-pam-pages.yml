@@ -1,0 +1,65 @@
+name: Publicar demonstração PAM 2024 (GitHub Pages)
+on:
+  push:
+    branches: [auditoria-tecnica-2026-11]
+    paths:
+      - 'site/auditoria-pam/**'
+      - '.github/workflows/publicar-previa-pam-pages.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages-pam-preview
+  cancel-in-progress: false
+jobs:
+  publicar:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validar dados antes da publicação
+        run: |
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+          root=Path('site/auditoria-pam')
+          d=json.loads((root/'data/pam-2024.json').read_text(encoding='utf-8'))
+          assert d['schema']=='atlas-pam-audit-v1' and d['year']==2024
+          assert len(d['rows'])==27820
+          keys=set()
+          stats=Counter()
+          for id,c,sidra,bd,st in d['rows']:
+              assert len(id)==7 and id.isdigit()
+              assert 0<=c<len(d['crops']) and 0<=st<len(d['statuses'])
+              assert sidra is None or isinstance(sidra,int) and sidra>=0
+              assert bd is None or isinstance(bd,int) and bd>=0
+              key=(id,c)
+              assert key not in keys
+              keys.add(key)
+              stats[d['statuses'][st]]+=1
+          assert stats['divergente']==53
+          assert (root/'index.html').exists()
+          print('Validados',len(keys),'registros; divergências:',stats['divergente'])
+          PY
+      - name: Preparar diretório exclusivo da demonstração
+        run: |
+          mkdir -p _pages
+          cp site/auditoria-pam/index.html _pages/index.html
+          mkdir -p _pages/data
+          cp site/auditoria-pam/data/pam-2024.json _pages/data/pam-2024.json
+          touch _pages/.nojekyll
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Carregar pacote do site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _pages
+      - name: Publicar site de demonstração
+        id: deployment
+        uses: actions/deploy-pages@v4

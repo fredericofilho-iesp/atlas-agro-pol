@@ -1,0 +1,83 @@
+name: Prévia PAM 2024 — validação e pacote local
+on:
+  push:
+    paths:
+      - 'site/auditoria-pam/**'
+      - 'pipeline/exportar_pam_site.py'
+      - 'pipeline/validar_malha_pam.py'
+      - 'tests/test_exportar_pam_site.py'
+      - 'tests/test_validar_malha_pam.py'
+      - '.github/workflows/previa-pam-2024.yml'
+  pull_request:
+    paths:
+      - 'site/auditoria-pam/**'
+      - 'pipeline/exportar_pam_site.py'
+      - 'pipeline/validar_malha_pam.py'
+      - 'tests/test_exportar_pam_site.py'
+      - 'tests/test_validar_malha_pam.py'
+      - '.github/workflows/previa-pam-2024.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validar-previa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Testar empacotamento e auditoria geográfica
+        run: python -m unittest discover -s tests -p 'test_exportar_pam_site.py' -v && python -m unittest discover -s tests -p 'test_validar_malha_pam.py' -v
+      - name: Verificar integridade do JSON nacional
+        run: |
+          python - <<'PY'
+          import json
+          from collections import Counter
+          from pathlib import Path
+          p=Path('site/auditoria-pam/data/pam-2024.json')
+          d=json.loads(p.read_text(encoding='utf-8'))
+          assert d['schema']=='atlas-pam-audit-v1'
+          assert d['year']==2024 and d['unit']=='mil_reais'
+          assert len(d['rows'])==27820, 'Cobertura diferente da auditoria'
+          keys=set()
+          stats=Counter()
+          for id,c,v,bd,s in d['rows']:
+              assert len(id)==7 and id.isdigit()
+              assert 0<=c<len(d['crops']) and 0<=s<len(d['statuses'])
+              assert v is None or isinstance(v,int) and v>=0
+              assert bd is None or isinstance(bd,int) and bd>=0
+              key=(id,c)
+              assert key not in keys, f'Duplicado: {key}'
+              keys.add(key)
+              stats[d['statuses'][s]]+=1
+          assert stats['divergente']==53
+          assert stats['concordante']==13779
+          print('OK:',len(keys),'chaves;',len({k[0] for k in keys}),'municípios;',dict(stats))
+          PY
+      - name: Validar HTML e caminho de dados
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('site/auditoria-pam/index.html')
+          h=p.read_text(encoding='utf-8')
+          assert 'loadAutomatic();' in h
+          assert './data/pam-2024.json' in h
+          assert '!/^\\d{7}$/.test(String(id))' in h, 'Regex do código IBGE inválida'
+          assert Path('site/auditoria-pam/data/pam-2024.json').exists()
+          print('Referência ao JSON e expressão de validação confirmadas')
+          PY
+      - name: Preparar pacote de prévia
+        run: |
+          mkdir -p previa-pam-2024/data
+          cp site/auditoria-pam/index.html previa-pam-2024/index.html
+          cp site/auditoria-pam/data/pam-2024.json previa-pam-2024/data/pam-2024.json
+          printf 'Para visualizar, abra um terminal nesta pasta e execute: python -m http.server 8000\nDepois abra http://localhost:8000/ no navegador. O mapa-base e a geometria requerem internet.\n' > previa-pam-2024/LEIA-ME.txt
+      - name: Disponibilizar pacote como artefato (sem publicar Pages)
+        uses: actions/upload-artifact@v4
+        with:
+          name: previa-pam-2024
+          path: previa-pam-2024/
+          retention-days: 30
+          if-no-files-found: error

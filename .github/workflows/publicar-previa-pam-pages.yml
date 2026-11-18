@@ -1,4 +1,5 @@
 name: Publicar demonstração PAM 2024 (GitHub Pages)
+# Reexecutar após configuração do Pages como GitHub Actions.
 on:
   push:
     branches: [auditoria-tecnica-2026-11]

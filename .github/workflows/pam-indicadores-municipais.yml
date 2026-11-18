@@ -1,0 +1,81 @@
+name: PAM 2024 — cinco indicadores municipais
+on:
+  push:
+    branches: [auditoria-tecnica-2026-11]
+    paths:
+      - 'pipeline/coletar_pam_indicadores.py'
+      - 'tests/test_coletar_pam_indicadores.py'
+      - '.github/workflows/pam-indicadores-municipais.yml'
+  pull_request:
+    paths:
+      - 'pipeline/coletar_pam_indicadores.py'
+      - 'tests/test_coletar_pam_indicadores.py'
+      - '.github/workflows/pam-indicadores-municipais.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  indicadores:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Testes unitários
+        run: python -m unittest discover -s tests -p 'test_coletar_pam_indicadores.py' -v
+      - name: Coletar dados oficiais para as cinco culturas
+        run: |
+          mkdir -p auditoria
+          python -m pipeline.coletar_pam_indicadores \
+            --ano 2024 --saida auditoria/pam_indicadores_municipais_2024.csv
+      - name: Auditar cobertura e compatibilidade com valores já publicados
+        run: |
+          python - <<'PY'
+          import csv, json
+          from collections import Counter
+          from decimal import Decimal
+          from pathlib import Path
+          from pipeline.coletar_pam_ibge_uf import PRODUTOS
+          from pipeline.coletar_pam_ibge_municipios_nacional import UFS
+          from pipeline.coletar_pam_indicadores import VARIAVEIS
+
+          arquivo = Path('auditoria/pam_indicadores_municipais_2024.csv')
+          with arquivo.open(encoding='utf-8', newline='') as f:
+              rows = list(csv.DictReader(f))
+          chaves = [(r['id_municipio'], r['codigo_produto'], r['codigo_variavel']) for r in rows]
+          assert len(chaves) == len(set(chaves)), 'Há chaves duplicadas'
+          assert {r['codigo_uf'] for r in rows} == set(UFS), 'Faltam UFs'
+          assert {r['codigo_variavel'] for r in rows} == set(VARIAVEIS), 'Faltam variáveis'
+          assert {r['produto'] for r in rows} == set(PRODUTOS), 'Faltam culturas'
+          assert all(r['id_municipio'].startswith(r['codigo_uf']) for r in rows)
+
+          pacote = json.loads(Path('site/auditoria-pam/data/pam-2024.json').read_text(encoding='utf-8'))
+          anteriores = {(municipio, pacote['crops'][indice]): valor for
+                        municipio, indice, valor, bd, estado in pacote['rows']}
+          valores = {(r['id_municipio'], r['produto']): r['valor']
+                     for r in rows if r['codigo_variavel'] == '215'}
+          assert set(valores) == set(anteriores), (
+              f'Cobertura 215 difere da auditoria: novos={len(set(valores)-set(anteriores))}, '
+              f'ausentes={len(set(anteriores)-set(valores))}'
+          )
+          divergentes = [(k, v, anteriores[k]) for k, v in valores.items() if
+                         (None if not v else Decimal(v)) !=
+                         (None if anteriores[k] is None else Decimal(anteriores[k]))]
+          assert not divergentes, f'Valor 215 diferente da auditoria: {divergentes[:5]}'
+          print('CONFIRMADO: cinco culturas, cinco variáveis e 27 UFs')
+          print('Valores da produção 215 compatíveis com', len(valores), 'registros publicados')
+          print('Registros por variável:', dict(Counter(r['codigo_variavel'] for r in rows)))
+          print('Ausências por variável:', dict(Counter(r['codigo_variavel'] for r in rows if not r['valor'])))
+          PY
+      - name: Arquivar coleta e manifesto para inspeção
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pam-indicadores-2024-${{ github.run_id }}
+          path: |
+            auditoria/pam_indicadores_municipais_2024.csv
+            auditoria/pam_indicadores_municipais_2024.manifesto.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,34 @@
+name: Auditoria PAM — variáveis produtivas críticas
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'pipeline/coletar_pam_ibge_variaveis_criticas.py'
+      - '.github/workflows/auditoria-pam-variaveis-criticas.yml'
+jobs:
+  coleta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Coletar variáveis do SIDRA
+        run: python -m pipeline.coletar_pam_ibge_variaveis_criticas --ano 2024 --saida auditoria/sidra_variaveis_criticas_2024.csv
+      - name: Verificar cobertura dos seis casos
+        run: |
+          python - <<'PY'
+          import csv
+          with open('auditoria/sidra_variaveis_criticas_2024.csv', encoding='utf-8') as f:
+              rows = list(csv.DictReader(f))
+          assert len(rows) == 6, f'Esperados seis casos, recebidos {len(rows)}'
+          assert len({(r['id_municipio'], r['produto']) for r in rows}) == 6
+          print('Seis casos distintos, cinco variáveis e símbolos originais preservados.')
+          PY
+      - name: Publicar dados e logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pam-variaveis-criticas-2024-${{ github.run_id }}
+          path: auditoria/
+          if-no-files-found: warn

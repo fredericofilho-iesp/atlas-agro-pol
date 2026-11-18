@@ -1,0 +1,121 @@
+name: Validação PAM — IBGE
+
+on:
+  pull_request:
+    paths:
+      - "pipeline/coletar_pam_ibge_uf.py"
+      - "tests/test_coletar_pam_ibge_uf.py"
+      - ".github/workflows/validacao-pam-ibge.yml"
+      - "data/raw/pam_bd_uf_2024.csv"
+      - "pipeline/validar_pam_uf.py"
+  workflow_dispatch:
+    inputs:
+      ano:
+        description: "Ano da PAM a coletar"
+        required: true
+        default: "2024"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  coleta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Testes do coletor e comparador
+        run: |
+          python -m unittest discover -s tests -p 'test_coletar_pam_ibge_uf.py' -v
+          python -m unittest discover -s tests -p 'test_validar_pam_uf.py' -v
+      - name: Coleta oficial IBGE por UF
+        id: coleta
+        continue-on-error: true
+        env:
+          ANO: ${{ inputs.ano || '2024' }}
+        run: |
+          mkdir -p auditoria
+          set -o pipefail
+          python -m pipeline.coletar_pam_ibge_uf --ano "$ANO" --saida auditoria/pam_ibge_uf_${ANO}.csv 2>&1 | tee auditoria/coleta.log
+      - name: Verificar cobertura e gerar relatório
+        if: always()
+        env:
+          ANO: ${{ inputs.ano || '2024' }}
+          COLETA: ${{ steps.coleta.outcome }}
+        run: |
+          python - <<'PY'
+          import csv, os
+          from pathlib import Path
+          ano = os.environ["ANO"]
+          Path("auditoria").mkdir(parents=True, exist_ok=True)
+          destino = Path("auditoria/relatorio.txt")
+          arq = Path(f"auditoria/pam_ibge_uf_{ano}.csv")
+          status = os.environ["COLETA"]
+          if not ano:
+              raise ValueError("Ano ausente na validação; não gerar relatório enganoso.")
+          linhas = []
+          if arq.exists():
+              with arq.open(encoding="utf-8", newline="") as f:
+                  linhas = list(csv.DictReader(f))
+          ufs = {x["codigo_uf"] for x in linhas}
+          culturas = {x["produto"] for x in linhas}
+          nulos = sum(not x["valor_total_mil_reais"] for x in linhas)
+          if status == "success" and (len(linhas) != 135 or len(ufs) != 27 or len(culturas) != 5):
+              raise ValueError("Coleta reportou sucesso mas a cobertura no CSV é incompleta.")
+          msg = (f"ano={ano}\ncoleta={status}\nlinhas={len(linhas)}\n"
+                 f"ufs={len(ufs)}\nculturas={len(culturas)}\n"
+                 f"valores_ausentes={nulos}\n"
+                 "OBS: 135 linhas são esperadas somente se as 5 culturas "
+                 "forem retornadas nas 27 UFs; ausências não são zero.\n")
+          destino.write_text(msg, encoding="utf-8")
+          print(msg)
+          PY
+      - name: Comparar com Base dos Dados (quando CSV estiver disponível)
+        if: steps.coleta.outcome == 'success'
+        env:
+          ANO: ${{ inputs.ano || '2024' }}
+        run: |
+          BD="data/raw/pam_bd_uf_${ANO}.csv"
+          if [ ! -f "$BD" ]; then
+            echo "Comparação pendente: falta $BD" | tee auditoria/comparacao-pendente.txt
+            exit 0
+          fi
+          python -m pipeline.validar_pam_uf \
+            --bd "$BD" \
+            --oficial "auditoria/pam_ibge_uf_${ANO}.csv" \
+            --saida "auditoria/comparacao_pam_uf_${ANO}.csv"
+          python - <<'PY'
+          import csv, os
+          from collections import Counter
+          from pathlib import Path
+          ano = os.environ["ANO"]
+          path = Path(f"auditoria/comparacao_pam_uf_{ano}.csv")
+          with path.open(encoding="utf-8", newline="") as f:
+              rows = list(csv.DictReader(f))
+          status = Counter(row["status"] for row in rows)
+          comparable = [r for r in rows if r["status"] == "comparavel"]
+          ranking = sorted(comparable, key=lambda r: abs(float(r["diferenca_mil_reais"])), reverse=True)
+          out = [f"Comparação PAM {ano}: {len(rows)} chaves", f"Status: {dict(status)}",
+                 "Maiores diferenças absolutas (mil reais):"]
+          for r in ranking[:15]:
+              out.append(f'{r["codigo_uf"]} | {r["produto"]} | {r["diferenca_mil_reais"]} | {r["diferenca_pct"]}%')
+          Path("auditoria/resumo-comparacao.txt").write_text("\n".join(out)+"\n", encoding="utf-8")
+          print("\n".join(out))
+          PY
+      - name: Publicar arquivos de auditoria
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pam-ibge-uf-${{ inputs.ano || '2024' }}-${{ github.run_id }}
+          path: auditoria/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Marcar falha se coleta não funcionou
+        if: steps.coleta.outcome != 'success'
+        run: |
+          echo "Falha na coleta oficial; consulte coleta.log no artefato."
+          exit 1

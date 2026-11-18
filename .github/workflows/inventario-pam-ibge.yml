@@ -1,0 +1,37 @@
+name: Inventário PAM — variáveis e culturas oficiais
+on:
+  push:
+    branches: [auditoria-tecnica-2026-11]
+    paths:
+      - 'pipeline/inventariar_pam_ibge.py'
+      - 'tests/test_inventariar_pam_ibge.py'
+      - '.github/workflows/inventario-pam-ibge.yml'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'pipeline/inventariar_pam_ibge.py'
+      - 'tests/test_inventariar_pam_ibge.py'
+      - '.github/workflows/inventario-pam-ibge.yml'
+permissions:
+  contents: read
+jobs:
+  inventariar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Testar extração de metadados
+        run: python -m unittest discover -s tests -p 'test_inventariar_pam_ibge.py' -v
+      - name: Consultar metadados oficiais IBGE
+        run: python -m pipeline.inventariar_pam_ibge --saida auditoria/inventario_pam_5457.json
+      - name: Disponibilizar inventário para revisão
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inventario-pam-ibge-${{ github.run_id }}
+          path: auditoria/inventario_pam_5457.json
+          if-no-files-found: warn
+          retention-days: 30
